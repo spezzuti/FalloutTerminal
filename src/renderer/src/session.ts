@@ -195,9 +195,16 @@ export class TerminalSession {
 
   /** Refit the terminal to its container and inform the PTY of the new size. */
   fitResize(): void {
-    if (this.pane.style.display === 'none') return
+    // Skip while detached or hidden (zero-size fits corrupt the layout).
+    if (!this.pane.isConnected || this.pane.offsetWidth === 0 || this.pane.offsetHeight === 0) {
+      return
+    }
+    // If the view was pinned to the bottom, keep the prompt visible after refit.
+    const buf = this.term.buffer.active
+    const atBottom = buf.viewportY >= buf.baseY
     this.fit.fit()
     if (!this.exited) window.term.resize(this.id, this.term.cols, this.term.rows)
+    if (atBottom) this.term.scrollToBottom()
   }
 
   setTheme(theme: ITheme): void {
@@ -210,13 +217,6 @@ export class TerminalSession {
     this.fitResize()
   }
 
-  setVisible(visible: boolean): void {
-    this.pane.style.display = visible ? 'block' : 'none'
-    if (visible) {
-      this.fitResize()
-      this.term.focus()
-    }
-  }
 
   dispose(): void {
     this.disposers.forEach((d) => d())

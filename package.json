@@ -38,7 +38,8 @@
     },
     "files": [
       "out/**/*",
-      "package.json"
+      "package.json",
+      "build/icon.ico"
     ],
     "asarUnpack": [
       "**/node_modules/node-pty/**"

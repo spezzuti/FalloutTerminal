@@ -28,18 +28,37 @@ export interface TabManagerDom {
   profileMenu: HTMLElement
 }
 
+interface TabInfo {
+  id: string
+  /** Container for this tab's (possibly split) panes. */
+  root: HTMLDivElement
+  sessionIds: string[]
+  /** The session that has keyboard focus within this tab. */
+  focusedId: string
+}
+
+let tabSeq = 0
+
 /**
- * Manages open terminal tabs: creation from profiles, closing, switching,
- * renaming, drag-reordering, the tab bar DOM, keyboard shortcuts, the profile
- * picker, workspaces, and session persistence.
+ * Manages terminal tabs and split panes: creation from profiles, closing,
+ * switching, renaming, drag-reordering, splits, the tab bar DOM, keyboard
+ * shortcuts, the profile picker, workspaces, and session persistence.
  */
 export class TabManager {
   private readonly sessions = new Map<string, TerminalSession>()
+  private readonly tabs = new Map<string, TabInfo>()
+  private readonly sessionTab = new Map<string, string>()
+  private readonly byPane = new Map<Element, TerminalSession>()
   private order: string[] = []
-  private activeId: string | null = null
+  private activeTabId: string | null = null
   private profiles: Profile[]
   private defaultProfileId: string
   private settings: AppSettings
+
+  private readonly ro: ResizeObserver
+  private readonly pendingFit = new Set<Element>()
+  private fitRaf = 0
+  private settleTimer = 0
 
   /** Set by the shell to run the power-off animation before closing. */
   closeApp?: () => void
@@ -55,17 +74,14 @@ export class TabManager {
     this.settings = settings
 
     window.term.onData((id, data) => this.sessions.get(id)?.write(data))
-    window.term.onExit((id) => this.handleExit(id))
+    window.term.onExit((id) => this.closeSession(id))
 
-    // A ResizeObserver fits *after* the layout settles, so growing the window
-    // fits accurately (the window 'resize' event fires too early on grow).
-    // Coalesce bursts of resize events into one fit per frame.
-    let fitQueued = 0
-    const ro = new ResizeObserver(() => {
-      cancelAnimationFrame(fitQueued)
-      fitQueued = requestAnimationFrame(() => this.active()?.fitResize())
+    // Observe every terminal pane: fires for window resizes AND divider drags,
+    // after layout settles (accurate on grow, unlike the window resize event).
+    this.ro = new ResizeObserver((entries) => {
+      for (const e of entries) this.pendingFit.add(e.target)
+      this.scheduleFit()
     })
-    ro.observe(this.dom.panes)
 
     this.dom.newTabBtn.addEventListener('click', () => void this.newTab())
     this.dom.profileMenuBtn.addEventListener('click', (e) => {
@@ -77,10 +93,34 @@ export class TabManager {
     this.buildProfileMenu()
   }
 
+  private scheduleFit(): void {
+    cancelAnimationFrame(this.fitRaf)
+    this.fitRaf = requestAnimationFrame(() => {
+      for (const pane of this.pendingFit) this.byPane.get(pane)?.fitResize()
+      this.pendingFit.clear()
+      // Trailing settle pass: guarantees a final exact fit after a resize
+      // gesture ends (interactive drags can starve intermediate callbacks).
+      window.clearTimeout(this.settleTimer)
+      this.settleTimer = window.setTimeout(() => this.fitActiveTab(), 140)
+    })
+  }
+
+  private fitActiveTab(): void {
+    const tab = this.activeTab()
+    if (!tab) return
+    for (const sid of tab.sessionIds) this.sessions.get(sid)?.fitResize()
+  }
+
   // ---- Accessors -------------------------------------------------------------
 
+  private activeTab(): TabInfo | undefined {
+    return this.activeTabId ? this.tabs.get(this.activeTabId) : undefined
+  }
+
+  /** The focused session of the active tab. */
   active(): TerminalSession | undefined {
-    return this.activeId ? this.sessions.get(this.activeId) : undefined
+    const tab = this.activeTab()
+    return tab ? this.sessions.get(tab.focusedId) : undefined
   }
 
   getSettings(): AppSettings {
@@ -95,17 +135,19 @@ export class TabManager {
     return this.defaultProfileId
   }
 
-  /** Current open tabs as a persistable snapshot. */
+  /** Current open tabs as a persistable snapshot (primary pane per tab). */
   snapshot(): SavedTab[] {
-    return this.order.map((id) => {
-      const s = this.sessions.get(id)!
-      return { profileId: s.profile.id, title: s.displayTitle }
-    })
+    const out: SavedTab[] = []
+    for (const tid of this.order) {
+      const tab = this.tabs.get(tid)
+      const s = tab && this.sessions.get(tab.sessionIds[0])
+      if (s) out.push({ profileId: s.profile.id, title: s.displayTitle })
+    }
+    return out
   }
 
   // ---- Settings application ---------------------------------------------------
 
-  /** Merge and persist a partial settings change (e.g. boot/restore toggles). */
   updateSetting(partial: Partial<AppSettings>): void {
     this.settings = { ...this.settings, ...partial }
     window.config.saveSettings(this.settings)
@@ -185,7 +227,7 @@ export class TabManager {
     if (size !== this.settings.fontSize) this.applyFont(this.settings.fontFamily, size)
   }
 
-  // ---- Tab lifecycle -----------------------------------------------------------
+  // ---- Session / tab lifecycle ---------------------------------------------------
 
   private profileById(id: string): Profile {
     return (
@@ -195,28 +237,134 @@ export class TabManager {
     )
   }
 
+  private createSession(
+    tab: TabInfo,
+    parent: HTMLElement,
+    profile: Profile,
+    title?: string
+  ): TerminalSession {
+    const s = new TerminalSession(parent, profile)
+    s.onTitleChange = () => {
+      this.renderTabs()
+      this.persist()
+    }
+    s.keyHandler = (e) => {
+      // Any keystroke marks this session as its tab's focused pane.
+      const tid = this.sessionTab.get(s.id)
+      if (tid) this.tabs.get(tid)!.focusedId = s.id
+      return this.handleKey(e)
+    }
+    s.copyOnSelect = this.settings.copyOnSelect
+    s.setCursor(this.settings.cursorStyle, this.settings.cursorBlink)
+    if (this.settings.performanceMode) s.setWebgl(true)
+    if (title && title !== profile.name) s.customTitle = title
+
+    s.pane.addEventListener('mousedown', () => {
+      const tid = this.sessionTab.get(s.id)
+      if (tid) this.tabs.get(tid)!.focusedId = s.id
+    })
+
+    this.sessions.set(s.id, s)
+    this.sessionTab.set(s.id, tab.id)
+    this.byPane.set(s.pane, s)
+    this.ro.observe(s.pane)
+    return s
+  }
+
   async newTab(
     profileId: string = this.defaultProfileId,
     cwd?: string,
     title?: string
   ): Promise<TerminalSession> {
     const profile = this.profileById(profileId)
-    const s = new TerminalSession(this.dom.panes, profile)
-    s.onTitleChange = () => {
-      this.renderTabs()
-      this.persist()
-    }
-    s.keyHandler = (e) => this.handleKey(e)
-    s.copyOnSelect = this.settings.copyOnSelect
-    s.setCursor(this.settings.cursorStyle, this.settings.cursorBlink)
-    if (this.settings.performanceMode) s.setWebgl(true)
-    if (title && title !== profile.name) s.customTitle = title
-    this.sessions.set(s.id, s)
-    this.order.push(s.id)
+    const root = document.createElement('div')
+    root.className = 'tab-pane hidden'
+    this.dom.panes.appendChild(root)
+
+    const tab: TabInfo = { id: `tab${tabSeq++}`, root, sessionIds: [], focusedId: '' }
+    this.tabs.set(tab.id, tab)
+    this.order.push(tab.id)
+
+    const s = this.createSession(tab, root, profile, title)
+    tab.sessionIds.push(s.id)
+    tab.focusedId = s.id
+
     await s.start(cwd)
-    this.activate(s.id)
+    this.renderTabs()
+    this.activate(tab.id)
     this.persist()
     return s
+  }
+
+  /** Split the focused pane of the active tab; the new pane runs the same profile. */
+  async splitActive(direction: 'row' | 'column'): Promise<void> {
+    const tab = this.activeTab()
+    if (!tab) return
+    const target = this.sessions.get(tab.focusedId)
+    if (!target) return
+
+    const holder = target.pane.parentElement!
+    const wrapper = document.createElement('div')
+    wrapper.className = `split split-${direction}`
+    holder.insertBefore(wrapper, target.pane)
+    wrapper.appendChild(target.pane)
+
+    const divider = document.createElement('div')
+    divider.className = 'split-divider'
+    this.wireDivider(divider, direction)
+    wrapper.appendChild(divider)
+
+    const s = this.createSession(tab, wrapper, target.profile)
+    tab.sessionIds.push(s.id)
+    await s.start()
+    tab.focusedId = s.id
+    s.term.focus()
+    target.fitResize()
+    s.fitResize()
+  }
+
+  private wireDivider(divider: HTMLDivElement, direction: 'row' | 'column'): void {
+    divider.addEventListener('mousedown', (e) => {
+      e.preventDefault()
+      const wrapper = divider.parentElement as HTMLElement
+      const first = wrapper.firstElementChild as HTMLElement
+      const horizontal = direction === 'row'
+      const move = (ev: MouseEvent): void => {
+        const r = wrapper.getBoundingClientRect()
+        const pct = horizontal
+          ? ((ev.clientX - r.left) / r.width) * 100
+          : ((ev.clientY - r.top) / r.height) * 100
+        first.style.flex = `0 0 ${Math.min(85, Math.max(15, pct))}%`
+      }
+      const up = (): void => {
+        document.removeEventListener('mousemove', move)
+        document.removeEventListener('mouseup', up)
+        this.fitActiveTab()
+      }
+      document.addEventListener('mousemove', move)
+      document.addEventListener('mouseup', up)
+    })
+  }
+
+  /** Remove empty split wrappers and orphaned dividers after a pane closes. */
+  private cleanupSplits(root: HTMLElement): void {
+    const splits = [...root.querySelectorAll<HTMLElement>('.split')].reverse()
+    for (const sp of splits) {
+      for (const child of [...sp.children]) {
+        if (!child.classList.contains('split-divider')) continue
+        const prev = child.previousElementSibling
+        const next = child.nextElementSibling
+        if (!prev || !next || prev.classList.contains('split-divider')) child.remove()
+      }
+      const content = [...sp.children].filter((c) => !c.classList.contains('split-divider'))
+      if (content.length === 1) {
+        const only = content[0] as HTMLElement
+        only.style.flex = ''
+        sp.replaceWith(only)
+      } else if (content.length === 0) {
+        sp.remove()
+      }
+    }
   }
 
   /** Rebuild tabs from a saved session; falls back to a default tab if empty. */
@@ -235,44 +383,86 @@ export class TabManager {
     if (!ws.tabs.length) return
     const old = [...this.order]
     for (const t of ws.tabs) await this.newTab(t.profileId, t.cwd, t.title)
-    for (const id of old) this.closeTab(id)
+    for (const tid of old) this.closeWholeTab(tid)
   }
 
-  activate(id: string): void {
-    if (!this.sessions.has(id)) return
-    this.activeId = id
-    for (const [sid, s] of this.sessions) s.setVisible(sid === id)
-    this.renderTabs()
+  activate(tabId: string): void {
+    const tab = this.tabs.get(tabId)
+    if (!tab) return
+    this.activeTabId = tabId
+    for (const [tid, t] of this.tabs) t.root.classList.toggle('hidden', tid !== tabId)
+    this.updateActiveClasses()
+    this.fitActiveTab()
+    this.sessions.get(tab.focusedId)?.term.focus()
   }
 
-  closeTab(id: string): void {
-    const s = this.sessions.get(id)
+  /** Close one pane; closes the tab when it was the last pane. */
+  closeSession(sessionId: string): void {
+    const s = this.sessions.get(sessionId)
     if (!s) return
-    const idx = this.order.indexOf(id)
-    s.dispose()
-    this.sessions.delete(id)
-    this.order = this.order.filter((x) => x !== id)
+    const tabId = this.sessionTab.get(sessionId)
+    const tab = tabId ? this.tabs.get(tabId) : undefined
 
-    if (this.order.length === 0) {
-      // Last tab closed -> quit the app, like a normal terminal.
-      ;(this.closeApp ?? ((): void => window.win.close()))()
+    s.dispose()
+    this.sessions.delete(sessionId)
+    this.sessionTab.delete(sessionId)
+    this.byPane.delete(s.pane)
+    if (!tab) return
+
+    tab.sessionIds = tab.sessionIds.filter((x) => x !== sessionId)
+    if (tab.sessionIds.length === 0) {
+      this.removeTab(tab.id)
       return
     }
-    if (this.activeId === id) {
-      this.activate(this.order[Math.min(idx, this.order.length - 1)])
-    } else {
-      this.renderTabs()
+    this.cleanupSplits(tab.root)
+    if (tab.focusedId === sessionId) {
+      tab.focusedId = tab.sessionIds[0]
+      if (tab.id === this.activeTabId) this.sessions.get(tab.focusedId)?.term.focus()
     }
+    this.fitActiveTab()
+    this.renderTabs()
     this.persist()
   }
 
-  private handleExit(id: string): void {
-    this.closeTab(id)
+  /** Close a whole tab (all its panes). */
+  closeWholeTab(tabId: string): void {
+    const tab = this.tabs.get(tabId)
+    if (!tab) return
+    for (const sid of [...tab.sessionIds]) {
+      const s = this.sessions.get(sid)
+      if (s) {
+        s.dispose()
+        this.sessions.delete(sid)
+        this.sessionTab.delete(sid)
+        this.byPane.delete(s.pane)
+      }
+    }
+    tab.sessionIds = []
+    this.removeTab(tabId)
+  }
+
+  private removeTab(tabId: string): void {
+    const tab = this.tabs.get(tabId)
+    if (!tab) return
+    const idx = this.order.indexOf(tabId)
+    tab.root.remove()
+    this.tabs.delete(tabId)
+    this.order = this.order.filter((x) => x !== tabId)
+
+    if (this.order.length === 0) {
+      ;(this.closeApp ?? ((): void => window.win.close()))()
+      return
+    }
+    if (this.activeTabId === tabId) {
+      this.activate(this.order[Math.min(idx, this.order.length - 1)])
+    }
+    this.renderTabs()
+    this.persist()
   }
 
   private cycle(dir: number): void {
-    if (this.order.length < 2 || !this.activeId) return
-    const i = this.order.indexOf(this.activeId)
+    if (this.order.length < 2 || !this.activeTabId) return
+    const i = this.order.indexOf(this.activeTabId)
     this.activate(this.order[(i + dir + this.order.length) % this.order.length])
   }
 
@@ -296,11 +486,21 @@ export class TabManager {
       return false
     }
     if (e.shiftKey && e.code === 'KeyW') {
-      if (this.activeId) this.closeTab(this.activeId)
+      const tab = this.activeTab()
+      if (tab) this.closeSession(tab.focusedId)
       return false
     }
     if (e.code === 'Tab') {
       this.cycle(e.shiftKey ? -1 : 1)
+      return false
+    }
+    // Split panes: D = side by side, S = stacked.
+    if (e.shiftKey && e.code === 'KeyD') {
+      void this.splitActive('row')
+      return false
+    }
+    if (e.shiftKey && e.code === 'KeyS') {
+      void this.splitActive('column')
       return false
     }
     // Copy the selection; with nothing selected let the key pass to the shell.
@@ -311,17 +511,14 @@ export class TabManager {
       this.active()?.paste()
       return false
     }
-    // Search in scrollback.
     if (e.shiftKey && e.code === 'KeyF') {
       document.dispatchEvent(new CustomEvent('app:search'))
       return false
     }
-    // RobCo hacking minigame.
     if (e.shiftKey && e.code === 'KeyH') {
       document.dispatchEvent(new CustomEvent('app:hack'))
       return false
     }
-    // Font zoom: Ctrl +/- and Ctrl+0 to reset.
     if (!e.shiftKey && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
       this.zoomFont(1)
       return false
@@ -334,7 +531,6 @@ export class TabManager {
       this.applyFont(this.settings.fontFamily, 16)
       return false
     }
-    // Ctrl+Shift+. cycles theme; Ctrl+Shift+, cycles CRT level.
     if (e.shiftKey && e.code === 'Period') {
       this.cycleTheme()
       return false
@@ -354,6 +550,19 @@ export class TabManager {
 
   // ---- DOM ------------------------------------------------------------------------
 
+  private primarySession(tab: TabInfo): TerminalSession | undefined {
+    return this.sessions.get(tab.sessionIds[0])
+  }
+
+  /** Toggle .active on existing tab elements without rebuilding the DOM
+      (a rebuild would eat the second click of a rename double-click). */
+  private updateActiveClasses(): void {
+    for (const el of this.dom.tabs.children) {
+      const he = el as HTMLElement
+      he.classList.toggle('active', he.dataset.tabId === this.activeTabId)
+    }
+  }
+
   private startRename(s: TerminalSession, label: HTMLElement): void {
     const input = document.createElement('input')
     input.className = 'tab-rename'
@@ -361,7 +570,10 @@ export class TabManager {
     label.replaceWith(input)
     input.select()
     input.focus()
+    let committed = false
     const commit = (): void => {
+      if (committed) return
+      committed = true
       const v = input.value.trim()
       s.customTitle = v && v !== s.title ? v : undefined
       this.renderTabs()
@@ -381,32 +593,32 @@ export class TabManager {
 
   private renderTabs(): void {
     this.dom.tabs.replaceChildren()
-    for (const id of this.order) {
-      const s = this.sessions.get(id)!
-      const tab = document.createElement('div')
-      tab.className = 'tab' + (id === this.activeId ? ' active' : '')
-      tab.title = s.oscTitle || s.displayTitle
-      tab.draggable = true
+    for (const tid of this.order) {
+      const tab = this.tabs.get(tid)!
+      const s = this.primarySession(tab)
+      if (!s) continue
+      const el = document.createElement('div')
+      el.className = 'tab' + (tid === this.activeTabId ? ' active' : '')
+      el.dataset.tabId = tid
+      const splitMark = tab.sessionIds.length > 1 ? ` ⊞` : ''
+      el.title = (s.oscTitle || s.displayTitle) + splitMark
+      el.draggable = true
 
-      tab.addEventListener('dragstart', (ev) => {
-        ev.dataTransfer!.setData('text/plain', id)
+      el.addEventListener('dragstart', (ev) => {
+        ev.dataTransfer!.setData('text/plain', tid)
         ev.dataTransfer!.effectAllowed = 'move'
       })
-      tab.addEventListener('dragover', (ev) => ev.preventDefault())
-      tab.addEventListener('drop', (ev) => {
+      el.addEventListener('dragover', (ev) => ev.preventDefault())
+      el.addEventListener('drop', (ev) => {
         ev.preventDefault()
         const src = ev.dataTransfer!.getData('text/plain')
-        if (src) this.moveTab(src, id)
+        if (src) this.moveTab(src, tid)
       })
 
       const label = document.createElement('span')
       label.className = 'tab-label'
-      label.textContent = s.displayTitle
-      label.addEventListener('dblclick', (ev) => {
-        ev.stopPropagation()
-        this.startRename(s, label)
-      })
-      tab.appendChild(label)
+      label.textContent = s.displayTitle + splitMark
+      el.appendChild(label)
 
       const close = document.createElement('button')
       close.className = 'tab-close'
@@ -414,12 +626,16 @@ export class TabManager {
       close.title = 'Close tab'
       close.addEventListener('click', (ev) => {
         ev.stopPropagation()
-        this.closeTab(id)
+        this.closeWholeTab(tid)
       })
-      tab.appendChild(close)
+      el.appendChild(close)
 
-      tab.addEventListener('click', () => this.activate(id))
-      this.dom.tabs.appendChild(tab)
+      el.addEventListener('click', () => this.activate(tid))
+      el.addEventListener('dblclick', (ev) => {
+        ev.stopPropagation()
+        this.startRename(s, label)
+      })
+      this.dom.tabs.appendChild(el)
     }
   }
 

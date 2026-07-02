@@ -58,6 +58,13 @@ const win = {
     const listener = (_e: unknown, maximized: boolean): void => cb(maximized)
     ipcRenderer.on('win:maximized', listener)
     return () => ipcRenderer.removeListener('win:maximized', listener)
+  },
+
+  /** Fired when the window is hidden to tray so the UI can undo close effects. */
+  onResetUi: (cb: () => void): (() => void) => {
+    const listener = (): void => cb()
+    ipcRenderer.on('win:reset-ui', listener)
+    return () => ipcRenderer.removeListener('win:reset-ui', listener)
   }
 }
 

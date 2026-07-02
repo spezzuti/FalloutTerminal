@@ -60,6 +60,14 @@ export interface AppSettings {
   soundVolume: number
   /** WebGL renderer: faster for heavy TUI apps, but disables the glyph glow. */
   performanceMode: boolean
+  /** Global summon/dismiss hotkey (quake mode). */
+  quakeEnabled: boolean
+  /** Electron accelerator string, e.g. "CommandOrControl+Shift+`". */
+  quakeHotkey: string
+  /** Closing the window hides to the system tray instead of quitting. */
+  closeToTray: boolean
+  /** Launch FalloutTerminal at Windows sign-in. */
+  autoStart: boolean
 }
 
 export interface CustomFont {

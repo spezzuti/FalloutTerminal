@@ -1,4 +1,14 @@
-import { app, shell, BrowserWindow, ipcMain, IpcMainEvent, Menu, screen } from 'electron'
+import {
+  app,
+  shell,
+  BrowserWindow,
+  ipcMain,
+  IpcMainEvent,
+  Menu,
+  screen,
+  globalShortcut,
+  Tray
+} from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, appendFileSync, statSync } from 'fs'
 import { registerPtyHandlers, disposeAllPtys } from './pty'
@@ -28,6 +38,67 @@ function logError(tag: string, err: unknown): void {
 
 process.on('uncaughtException', (e) => logError('uncaughtException', e))
 process.on('unhandledRejection', (r) => logError('unhandledRejection', r))
+
+// ---- Quake hotkey / tray / autostart ------------------------------------------
+
+let mainWindowRef: BrowserWindow | null = null
+let tray: Tray | null = null
+let quitting = false
+
+function toggleQuake(): void {
+  const w = mainWindowRef
+  if (!w || w.isDestroyed()) return
+  if (w.isVisible() && w.isFocused()) {
+    w.hide()
+  } else {
+    if (w.isMinimized()) w.restore()
+    w.show()
+    w.focus()
+  }
+}
+
+/** (Re)apply the system-level settings: global hotkey and login item. */
+function applySystemSettings(): void {
+  const s = loadConfig().settings
+  globalShortcut.unregisterAll()
+  if (s.quakeEnabled && s.quakeHotkey) {
+    try {
+      globalShortcut.register(s.quakeHotkey, toggleQuake)
+    } catch (e) {
+      logError('quake hotkey', e)
+    }
+  }
+  try {
+    app.setLoginItemSettings({ openAtLogin: s.autoStart })
+  } catch (e) {
+    logError('login item', e)
+  }
+}
+
+function createTray(): void {
+  if (tray) return
+  try {
+    tray = new Tray(join(app.getAppPath(), 'build', 'icon.ico'))
+    tray.setToolTip('FalloutTerminal')
+    tray.setContextMenu(
+      Menu.buildFromTemplate([
+        { label: 'Show / Hide', click: toggleQuake },
+        { type: 'separator' },
+        {
+          label: 'Quit',
+          click: (): void => {
+            quitting = true
+            app.quit()
+          }
+        }
+      ])
+    )
+    tray.on('click', toggleQuake)
+  } catch (e) {
+    logError('tray', e)
+    tray = null
+  }
+}
 
 // ---- Window geometry persistence -------------------------------------------
 
@@ -75,6 +146,8 @@ function registerConfigHandlers(): void {
     const cfg = loadConfig()
     cfg.settings = { ...cfg.settings, ...settings }
     saveConfig(cfg)
+    // Hotkey / tray / autostart prefs take effect immediately.
+    applySystemSettings()
   })
 
   ipcMain.on('config:save-workspaces', (_e, workspaces: Workspace[]) => {
@@ -165,13 +238,23 @@ function createWindow(): void {
     }
   })
 
+  mainWindowRef = mainWindow
   if (state?.maximized) mainWindow.maximize()
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
 
-  mainWindow.on('close', () => saveWindowState(mainWindow))
+  mainWindow.on('close', (e) => {
+    if (loadConfig().settings.closeToTray && !quitting) {
+      // Hide to tray instead of quitting; undo the power-off animation state.
+      e.preventDefault()
+      mainWindow.hide()
+      mainWindow.webContents.send('win:reset-ui')
+      return
+    }
+    saveWindowState(mainWindow)
+  })
 
   // Let the renderer swap the maximize/restore button glyph.
   mainWindow.on('maximize', () => mainWindow.webContents.send('win:maximized', true))
@@ -209,10 +292,20 @@ app.whenReady().then(() => {
   registerWindowHandlers()
   registerConfigHandlers()
   createWindow()
+  createTray()
+  applySystemSettings()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  quitting = true
+})
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
 })
 
 app.on('window-all-closed', () => {

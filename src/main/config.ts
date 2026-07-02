@@ -93,7 +93,11 @@ function defaultConfig(): AppConfig {
       pasteGuard: true,
       soundEnabled: true,
       soundVolume: 0.4,
-      performanceMode: false
+      performanceMode: false,
+      quakeEnabled: true,
+      quakeHotkey: 'CommandOrControl+Shift+`',
+      closeToTray: false,
+      autoStart: false
     },
     customFonts: []
   }

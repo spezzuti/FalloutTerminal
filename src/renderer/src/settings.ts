@@ -270,6 +270,35 @@ export class SettingsPanel {
     volWrap.append(vol, volVal)
     panel.appendChild(this.field('Volume', volWrap))
 
+    // ---- SYSTEM ----
+    panel.appendChild(this.section('SYSTEM'))
+    panel.appendChild(
+      this.field(
+        'Global summon hotkey (quake mode)',
+        this.checkbox(s.quakeEnabled, (v) => this.tabs.updateSetting({ quakeEnabled: v }))
+      )
+    )
+    const hotkey = document.createElement('input')
+    hotkey.type = 'text'
+    hotkey.className = 'settings-text'
+    hotkey.value = s.quakeHotkey
+    hotkey.addEventListener('change', () =>
+      this.tabs.updateSetting({ quakeHotkey: hotkey.value.trim() })
+    )
+    panel.appendChild(this.field('Hotkey', hotkey))
+    panel.appendChild(
+      this.field(
+        'Close to tray (keep running)',
+        this.checkbox(s.closeToTray, (v) => this.tabs.updateSetting({ closeToTray: v }))
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Start with Windows',
+        this.checkbox(s.autoStart, (v) => this.tabs.updateSetting({ autoStart: v }))
+      )
+    )
+
     // ---- PROFILES ----
     panel.appendChild(this.section('PROFILES'))
     const defSelect = this.select(

@@ -260,11 +260,60 @@ body,
   min-height: 0;
 }
 
-.terminal-pane {
+/* One container per tab, holding a (possibly split) flex layout of panes. */
+.tab-pane {
   position: absolute;
   inset: 0;
+  display: flex;
+}
+
+.tab-pane.hidden {
+  display: none;
+}
+
+.terminal-pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   /* extra bottom room so the prompt doesn't sit flush on the edge */
   padding: 8px 10px 16px;
+}
+
+/* Split-pane containers */
+.split {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+.split-row {
+  flex-direction: row;
+}
+
+.split-column {
+  flex-direction: column;
+}
+
+.split-divider {
+  flex: 0 0 5px;
+  background: var(--crt-dim);
+  opacity: 0.45;
+  z-index: 6;
+  transition: opacity 0.1s ease;
+}
+
+.split-row > .split-divider {
+  cursor: col-resize;
+}
+
+.split-column > .split-divider {
+  cursor: row-resize;
+}
+
+.split-divider:hover {
+  opacity: 1;
 }
 
 /* xterm fills its pane */

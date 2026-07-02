@@ -61,6 +61,13 @@ async function boot(): Promise<void> {
     window.setTimeout(() => window.win.close(), 440)
   }
 
+  // If close-to-tray hid the window instead, undo the power-off state so the
+  // screen isn't collapsed when summoned again.
+  window.win.onResetUi(() => {
+    closing = false
+    document.getElementById('app')?.classList.remove('power-off')
+  })
+
   wireWindowControls(powerOffClose)
 
   // Re-register any user-uploaded fonts so they're available before terminals start.
