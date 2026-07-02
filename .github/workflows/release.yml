@@ -6,6 +6,8 @@ on:
   push:
     tags:
       - 'v*'
+  # Manual runs for debugging the pipeline without cutting a release tag.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -14,6 +16,8 @@ jobs:
   build:
     # Pinned (not -latest): guaranteed VS2022 toolchain for the node-pty build.
     runs-on: windows-2022
+    # The native rebuild once hung indefinitely on a runner; fail fast instead.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -30,12 +34,23 @@ jobs:
         run: npm ci
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          # Verbose native-build logging: a previous run hung silently in
+          # @electron/rebuild's "preparing" phase (suspected header download).
+          npm_config_loglevel: verbose
+          GYP_MSVS_VERSION: '2022'
 
       - name: Build
         run: npm run build
 
-      - name: Package and publish release
+      - name: Package and publish release (draft)
         run: npx electron-builder --win --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      # electron-builder uploads as a draft; make it public so auto-update sees it.
+      - name: Publish draft release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: gh release edit ${{ github.ref_name }} --repo ${{ github.repository }} --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
