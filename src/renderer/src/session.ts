@@ -193,18 +193,43 @@ export class TerminalSession {
     this.term.write('\r\n\x1b[2m[process exited]\x1b[0m\r\n')
   }
 
+  private ptyResizeTimer = 0
+  private pinTimers: number[] = []
+
+  private pinBottom(): void {
+    if (!this.pane.isConnected) return
+    const b = this.term.buffer.active
+    if (b.baseY - b.viewportY <= 2) this.term.scrollToBottom()
+  }
+
   /** Refit the terminal to its container and inform the PTY of the new size. */
   fitResize(): void {
     // Skip while detached or hidden (zero-size fits corrupt the layout).
     if (!this.pane.isConnected || this.pane.offsetWidth === 0 || this.pane.offsetHeight === 0) {
       return
     }
-    // If the view was pinned to the bottom, keep the prompt visible after refit.
+    // If the view was at (or near) the bottom, keep the prompt pinned to the
+    // bottom edge through the refit — like the native Windows terminal.
     const buf = this.term.buffer.active
-    const atBottom = buf.viewportY >= buf.baseY
+    const atBottom = buf.baseY - buf.viewportY <= 1
     this.fit.fit()
-    if (!this.exited) window.term.resize(this.id, this.term.cols, this.term.rows)
     if (atBottom) this.term.scrollToBottom()
+    if (this.exited) return
+
+    // Debounce the ConPTY resize: flooding it mid-drag makes it repaint
+    // against stale grids, which is what drifts/clips the prompt. The visual
+    // grid above stays live; the shell gets one resize when the drag settles.
+    window.clearTimeout(this.ptyResizeTimer)
+    this.ptyResizeTimer = window.setTimeout(() => {
+      window.term.resize(this.id, this.term.cols, this.term.rows)
+      if (atBottom) {
+        // ConPTY's repaint arrives asynchronously; re-pin as it lands.
+        this.pinTimers.forEach((t) => window.clearTimeout(t))
+        this.pinTimers = [50, 150, 350].map((ms) =>
+          window.setTimeout(() => this.pinBottom(), ms)
+        )
+      }
+    }, 80)
   }
 
   setTheme(theme: ITheme): void {

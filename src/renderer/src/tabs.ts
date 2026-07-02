@@ -56,8 +56,6 @@ export class TabManager {
   private settings: AppSettings
 
   private readonly ro: ResizeObserver
-  private readonly pendingFit = new Set<Element>()
-  private fitRaf = 0
   private settleTimer = 0
 
   /** Set by the shell to run the power-off animation before closing. */
@@ -78,9 +76,13 @@ export class TabManager {
 
     // Observe every terminal pane: fires for window resizes AND divider drags,
     // after layout settles (accurate on grow, unlike the window resize event).
+    // Fit IMMEDIATELY so the terminal reflows live while dragging — the prompt
+    // must stay pinned to the bottom edge, never get clipped.
     this.ro = new ResizeObserver((entries) => {
-      for (const e of entries) this.pendingFit.add(e.target)
-      this.scheduleFit()
+      for (const e of entries) this.byPane.get(e.target)?.fitResize()
+      // Trailing settle pass guarantees a final exact fit after the gesture.
+      window.clearTimeout(this.settleTimer)
+      this.settleTimer = window.setTimeout(() => this.fitActiveTab(), 120)
     })
 
     this.dom.newTabBtn.addEventListener('click', () => void this.newTab())
@@ -91,18 +93,6 @@ export class TabManager {
     document.addEventListener('click', () => this.hideProfileMenu())
 
     this.buildProfileMenu()
-  }
-
-  private scheduleFit(): void {
-    cancelAnimationFrame(this.fitRaf)
-    this.fitRaf = requestAnimationFrame(() => {
-      for (const pane of this.pendingFit) this.byPane.get(pane)?.fitResize()
-      this.pendingFit.clear()
-      // Trailing settle pass: guarantees a final exact fit after a resize
-      // gesture ends (interactive drags can starve intermediate callbacks).
-      window.clearTimeout(this.settleTimer)
-      this.settleTimer = window.setTimeout(() => this.fitActiveTab(), 140)
-    })
   }
 
   private fitActiveTab(): void {
