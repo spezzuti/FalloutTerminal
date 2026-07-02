@@ -10,10 +10,17 @@ import {
   Tray
 } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, appendFileSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, statSync, existsSync } from 'fs'
 import { registerPtyHandlers, disposeAllPtys } from './pty'
 import { loadConfig, saveConfig } from './config'
-import type { SavedTab, AppSettings, Workspace, CustomFont, Profile } from '../shared/types'
+import type {
+  SavedTab,
+  AppSettings,
+  Workspace,
+  CustomFont,
+  CustomTheme,
+  Profile
+} from '../shared/types'
 
 // ---- Error logging ----------------------------------------------------------
 // Main-process failures are otherwise invisible; keep a small rotating log.
@@ -162,6 +169,22 @@ function registerConfigHandlers(): void {
     saveConfig(cfg)
   })
 
+  ipcMain.on('config:save-custom-themes', (_e, themes: CustomTheme[]) => {
+    const cfg = loadConfig()
+    cfg.customThemes = themes
+    saveConfig(cfg)
+  })
+
+  // Open the error log in the default viewer (created empty if absent).
+  ipcMain.on('app:open-log', () => {
+    try {
+      if (!existsSync(logPath())) writeFileSync(logPath(), '')
+      void shell.openPath(logPath())
+    } catch (e) {
+      logError('open-log', e)
+    }
+  })
+
   ipcMain.on(
     'config:save-profiles',
     (_e, customProfiles: Profile[], defaultProfileId: string) => {
@@ -282,6 +305,18 @@ function createWindow(): void {
   }
 }
 
+// Single instance: launching the exe again just summons the existing window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
+app.on('second-instance', () => {
+  const w = mainWindowRef
+  if (!w || w.isDestroyed()) return
+  if (w.isMinimized()) w.restore()
+  w.show()
+  w.focus()
+})
+
 app.whenReady().then(() => {
   // Remove the default application menu entirely: a frameless terminal must
   // not have invisible accelerators (Ctrl+R = reload, Ctrl+W = close, ...)
@@ -296,13 +331,22 @@ app.whenReady().then(() => {
   applySystemSettings()
 
   // Auto-update from GitHub releases (installed builds only; portable exes
-  // and dev runs skip this). Fails silently offline.
+  // and dev runs skip this). When an update finishes downloading, the
+  // renderer shows a RobCo-styled install prompt.
   if (app.isPackaged) {
     void (async (): Promise<void> => {
       try {
         const { autoUpdater } = await import('electron-updater')
+        autoUpdater.autoDownload = true
         autoUpdater.on('error', (e) => logError('autoUpdater', e))
-        await autoUpdater.checkForUpdatesAndNotify()
+        autoUpdater.on('update-downloaded', (info) => {
+          mainWindowRef?.webContents.send('update:ready', info.version)
+        })
+        ipcMain.on('update:install', () => {
+          quitting = true
+          autoUpdater.quitAndInstall()
+        })
+        await autoUpdater.checkForUpdates()
       } catch (e) {
         logError('autoUpdater init', e)
       }

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, clipboard } from 'electron'
+import { contextBridge, ipcRenderer, clipboard, webUtils } from 'electron'
 import type {
   SpawnOptions,
   SpawnResult,
@@ -7,6 +7,7 @@ import type {
   AppSettings,
   Workspace,
   CustomFont,
+  CustomTheme,
   Profile
 } from '../shared/types'
 
@@ -65,7 +66,24 @@ const win = {
     const listener = (): void => cb()
     ipcRenderer.on('win:reset-ui', listener)
     return () => ipcRenderer.removeListener('win:reset-ui', listener)
-  }
+  },
+
+  openLog: (): void => ipcRenderer.send('app:open-log'),
+
+  /** Fired when an app update has downloaded and is ready to install. */
+  onUpdateReady: (cb: (version: string) => void): (() => void) => {
+    const listener = (_e: unknown, version: string): void => cb(version)
+    ipcRenderer.on('update:ready', listener)
+    return () => ipcRenderer.removeListener('update:ready', listener)
+  },
+
+  installUpdate: (): void => ipcRenderer.send('update:install')
+}
+
+// File helpers usable from the sandboxed renderer.
+const native = {
+  /** Absolute filesystem path of a File from a drag-and-drop event. */
+  getPathForFile: (file: File): string => webUtils.getPathForFile(file)
 }
 
 // System clipboard (more reliable than navigator.clipboard in this context).
@@ -82,6 +100,8 @@ const config = {
     ipcRenderer.send('config:save-workspaces', workspaces),
   saveCustomFonts: (fonts: CustomFont[]): void =>
     ipcRenderer.send('config:save-custom-fonts', fonts),
+  saveCustomThemes: (themes: CustomTheme[]): void =>
+    ipcRenderer.send('config:save-custom-themes', themes),
   saveProfiles: (customProfiles: Profile[], defaultProfileId: string): void =>
     ipcRenderer.send('config:save-profiles', customProfiles, defaultProfileId)
 }
@@ -90,8 +110,10 @@ contextBridge.exposeInMainWorld('term', api)
 contextBridge.exposeInMainWorld('win', win)
 contextBridge.exposeInMainWorld('clip', clip)
 contextBridge.exposeInMainWorld('config', config)
+contextBridge.exposeInMainWorld('native', native)
 
 export type TermApi = typeof api
 export type WinApi = typeof win
 export type ClipApi = typeof clip
 export type ConfigApi = typeof config
+export type NativeApi = typeof native

@@ -1,0 +1,69 @@
+#idle-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 970;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.25) 0px,
+      rgba(0, 0, 0, 0.25) 1.5px,
+      transparent 1.5px,
+      transparent 3px
+    ),
+    radial-gradient(ellipse at center, #0a2011 0%, #030a05 75%);
+  animation: idle-in 1.4s ease forwards;
+  cursor: none;
+}
+
+@keyframes idle-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.idle-plate {
+  text-align: center;
+}
+
+.idle-ring {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 340px;
+  height: 340px;
+  border: 3px solid var(--crt-fg);
+  border-radius: 50%;
+  box-shadow:
+    0 0 24px var(--crt-glow),
+    inset 0 0 24px var(--crt-glow),
+    0 0 0 14px rgba(69, 255, 138, 0.06);
+  animation: idle-pulse 3.2s ease-in-out infinite;
+}
+
+.idle-text {
+  white-space: pre-line;
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  font-size: 44px;
+  line-height: 1.25;
+  letter-spacing: 4px;
+  color: var(--crt-fg);
+  text-shadow:
+    0 0 10px var(--crt-fg),
+    0 0 26px var(--crt-glow);
+}
+
+@keyframes idle-pulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.18);
+  }
+}

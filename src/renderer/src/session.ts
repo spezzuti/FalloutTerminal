@@ -39,6 +39,8 @@ export class TerminalSession {
   onTitleChange?: (s: TerminalSession) => void
   /** Return false to swallow a key (we handled it as a shortcut). */
   keyHandler?: (e: KeyboardEvent) => boolean
+  /** Search results changed: (activeIndex, totalCount). */
+  onSearchResults?: (index: number, count: number) => void
 
   constructor(parent: HTMLElement, profile: Profile) {
     this.id = `t${Date.now()}-${seq++}`
@@ -62,6 +64,7 @@ export class TerminalSession {
     this.term.loadAddon(this.fit)
     this.search = new SearchAddon()
     this.term.loadAddon(this.search)
+    this.search.onDidChangeResults((e) => this.onSearchResults?.(e.resultIndex, e.resultCount))
     // Clickable URLs open in the system browser.
     this.term.loadAddon(new WebLinksAddon((_e, uri) => window.win.openExternal(uri)))
     // xterm's built-in DOM renderer: text is real DOM, so the CRT phosphor glow
@@ -115,6 +118,25 @@ export class TerminalSession {
       } else {
         this.paste()
       }
+    })
+
+    // Drag & drop files -> paste their (quoted) paths, like Windows Terminal.
+    this.pane.addEventListener('dragover', (e) => e.preventDefault())
+    this.pane.addEventListener('drop', (e) => {
+      e.preventDefault()
+      const files = e.dataTransfer?.files
+      if (!files?.length) return
+      const paths = [...files]
+        .map((f) => {
+          try {
+            return window.native.getPathForFile(f)
+          } catch {
+            return ''
+          }
+        })
+        .filter(Boolean)
+        .map((p) => (/\s/.test(p) ? `"${p}"` : p))
+      if (paths.length) this.term.paste(paths.join(' '))
     })
   }
 
@@ -175,12 +197,30 @@ export class TerminalSession {
     }
   }
 
+  private static readonly SEARCH_DECOR = {
+    matchBackground: '#1c8a3a',
+    matchOverviewRuler: '#1c8a3a',
+    activeMatchBackground: '#45ff8a',
+    activeMatchColorOverviewRuler: '#45ff8a'
+  }
+
   findNext(query: string, incremental = false): void {
-    if (query) this.search.findNext(query, { incremental })
+    if (query) {
+      this.search.findNext(query, { incremental, decorations: TerminalSession.SEARCH_DECOR })
+    } else {
+      this.clearSearch()
+    }
   }
 
   findPrevious(query: string): void {
-    if (query) this.search.findPrevious(query)
+    if (query) {
+      this.search.findPrevious(query, { decorations: TerminalSession.SEARCH_DECOR })
+    }
+  }
+
+  clearSearch(): void {
+    this.search.clearDecorations()
+    this.onSearchResults?.(-1, 0)
   }
 
   write(data: string): void {

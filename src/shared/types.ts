@@ -68,6 +68,24 @@ export interface AppSettings {
   closeToTray: boolean
   /** Launch FalloutTerminal at Windows sign-in. */
   autoStart: boolean
+  /** Show the PLEASE STAND BY screen after a period of inactivity. */
+  idleScreen: boolean
+  idleMinutes: number
+}
+
+/** A user-created color theme, editable in settings. */
+export interface CustomTheme {
+  id: string
+  name: string
+  bg: string
+  fg: string
+  /** UI accent (borders, inactive text). */
+  dim: string
+  /** Base color for the phosphor glow. */
+  glowColor: string
+  cursor: string
+  /** The 16 ANSI colors: black..white, brightBlack..brightWhite. */
+  ansi: string[]
 }
 
 export interface CustomFont {
@@ -87,4 +105,5 @@ export interface AppConfig {
   workspaces: Workspace[]
   settings: AppSettings
   customFonts: CustomFont[]
+  customThemes: CustomTheme[]
 }

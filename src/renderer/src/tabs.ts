@@ -10,6 +10,7 @@ import {
 import { CRT_LEVELS, setCrtLevel } from './crt'
 import { configureSound } from './sound'
 import { setPasteGuardEnabled } from './paste-guard'
+import { noteActivity } from './idle'
 import type {
   Profile,
   SavedTab,
@@ -60,6 +61,8 @@ export class TabManager {
 
   /** Set by the shell to run the power-off animation before closing. */
   closeApp?: () => void
+  /** Relays search result counts from the focused session to the search bar. */
+  onSearchResults?: (index: number, count: number) => void
 
   constructor(
     private readonly dom: TabManagerDom,
@@ -71,8 +74,22 @@ export class TabManager {
     this.defaultProfileId = defaultProfileId
     this.settings = settings
 
-    window.term.onData((id, data) => this.sessions.get(id)?.write(data))
+    window.term.onData((id, data) => {
+      noteActivity() // shell output counts as activity for the idle screen
+      this.sessions.get(id)?.write(data)
+    })
     window.term.onExit((id) => this.closeSession(id))
+
+    // Ctrl + mouse wheel zooms the font.
+    this.dom.panes.addEventListener(
+      'wheel',
+      (e) => {
+        if (!e.ctrlKey) return
+        e.preventDefault()
+        this.zoomFont(e.deltaY < 0 ? 1 : -1)
+      },
+      { passive: false }
+    )
 
     // Observe every terminal pane: fires for window resizes AND divider drags,
     // after layout settles (accurate on grow, unlike the window resize event).
@@ -248,6 +265,7 @@ export class TabManager {
     s.setCursor(this.settings.cursorStyle, this.settings.cursorBlink)
     if (this.settings.performanceMode) s.setWebgl(true)
     if (title && title !== profile.name) s.customTitle = title
+    s.onSearchResults = (i, c) => this.onSearchResults?.(i, c)
 
     s.pane.addEventListener('mousedown', () => {
       const tid = this.sessionTab.get(s.id)
@@ -581,6 +599,49 @@ export class TabManager {
     })
   }
 
+  /** Small popup menu on tab right-click. */
+  private showTabMenu(x: number, y: number, tid: string): void {
+    document.getElementById('tab-menu')?.remove()
+    const tab = this.tabs.get(tid)
+    const s = tab && this.primarySession(tab)
+    if (!tab || !s) return
+
+    const menu = document.createElement('div')
+    menu.id = 'tab-menu'
+    const add = (label: string, fn: () => void): void => {
+      const b = document.createElement('button')
+      b.textContent = label
+      b.addEventListener('click', (e) => {
+        e.stopPropagation()
+        menu.remove()
+        fn()
+      })
+      menu.appendChild(b)
+    }
+    add('Rename', () => {
+      const label = this.dom.tabs.querySelector<HTMLElement>(
+        `[data-tab-id="${tid}"] .tab-label`
+      )
+      if (label) this.startRename(s, label)
+    })
+    add('Duplicate', () => void this.newTab(s.profile.id))
+    add('Close others', () => {
+      for (const t of [...this.order]) if (t !== tid) this.closeWholeTab(t)
+    })
+    add('Close to the right', () => {
+      const idx = this.order.indexOf(tid)
+      for (const t of this.order.slice(idx + 1)) this.closeWholeTab(t)
+    })
+    add('Close', () => this.closeWholeTab(tid))
+
+    menu.style.left = `${x}px`
+    menu.style.top = `${y}px`
+    document.body.appendChild(menu)
+    window.setTimeout(() => {
+      document.addEventListener('click', () => menu.remove(), { once: true })
+    }, 0)
+  }
+
   private renderTabs(): void {
     this.dom.tabs.replaceChildren()
     for (const tid of this.order) {
@@ -590,9 +651,16 @@ export class TabManager {
       const el = document.createElement('div')
       el.className = 'tab' + (tid === this.activeTabId ? ' active' : '')
       el.dataset.tabId = tid
+      if (s.profile.color) el.style.borderLeft = `2px solid ${s.profile.color}`
       const splitMark = tab.sessionIds.length > 1 ? ` ⊞` : ''
       el.title = (s.oscTitle || s.displayTitle) + splitMark
       el.draggable = true
+
+      el.addEventListener('contextmenu', (ev) => {
+        ev.preventDefault()
+        ev.stopPropagation()
+        this.showTabMenu(ev.clientX, ev.clientY, tid)
+      })
 
       el.addEventListener('dragstart', (ev) => {
         ev.dataTransfer!.setData('text/plain', tid)

@@ -325,6 +325,57 @@ body,
   padding: 8px 10px 14px;
 }
 
+/* Update-ready prompt (reuses paste-panel typography) */
+#update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 945;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#update-panel {
+  width: 420px;
+  max-width: 90vw;
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-dim);
+  box-shadow: 0 0 24px var(--crt-glow);
+  color: var(--crt-fg);
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  padding: 16px 18px;
+}
+
+/* Tab right-click menu */
+#tab-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 150px;
+  background: #061007;
+  border: 1px solid var(--crt-dim);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6);
+  font-family: "Monofonto", "Share Tech Mono", monospace;
+}
+
+#tab-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  color: var(--crt-fg);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+#tab-menu button:hover {
+  background: rgba(51, 255, 102, 0.15);
+  text-shadow: 0 0 6px var(--crt-glow);
+}
+
 /* Multi-line paste guard dialog */
 #paste-overlay {
   position: fixed;
@@ -425,6 +476,14 @@ body,
 
 #search-input::placeholder {
   color: var(--crt-dim);
+}
+
+#search-count {
+  color: var(--crt-dim);
+  font-family: "Monofonto", "Share Tech Mono", monospace;
+  font-size: 12px;
+  min-width: 42px;
+  text-align: right;
 }
 
 #search-close {

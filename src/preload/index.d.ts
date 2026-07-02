@@ -1,4 +1,4 @@
-import type { TermApi, WinApi, ClipApi, ConfigApi } from './index'
+import type { TermApi, WinApi, ClipApi, ConfigApi, NativeApi } from './index'
 
 declare global {
   interface Window {
@@ -6,6 +6,7 @@ declare global {
     win: WinApi
     clip: ClipApi
     config: ConfigApi
+    native: NativeApi
   }
 }
 

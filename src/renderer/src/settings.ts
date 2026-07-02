@@ -1,13 +1,24 @@
 import './settings.css'
-import { THEMES, FONTS, addFontOption, loadCustomFont } from './theme'
+import {
+  THEMES,
+  FONTS,
+  addFontOption,
+  loadCustomFont,
+  registerCustomThemes,
+  themeToCustom,
+  getTheme,
+  ANSI_LABELS
+} from './theme'
 import { CRT_LEVELS, runBootSequence } from './crt'
 import { launchHack } from './hack'
+import { configureIdle } from './idle'
 import type { TabManager } from './tabs'
 import type {
   CrtLevel,
   ColorMode,
   CursorStyle,
   CustomFont,
+  CustomTheme,
   Profile,
   Workspace
 } from '../../shared/types'
@@ -22,11 +33,15 @@ export class SettingsPanel {
   private fontSelect!: HTMLSelectElement
   private workspaces: Workspace[] = []
 
+  private customThemes: CustomTheme[]
+
   constructor(
     private readonly tabs: TabManager,
     private readonly customFonts: CustomFont[],
-    workspaces: Workspace[]
+    workspaces: Workspace[],
+    customThemes: CustomTheme[]
   ) {
+    this.customThemes = customThemes
     this.workspaces = workspaces
     this.overlay = document.createElement('div')
     this.overlay.id = 'settings-overlay'
@@ -163,6 +178,35 @@ export class SettingsPanel {
       )
     )
 
+    // Custom themes: list + editor
+    for (const ct of this.customThemes) {
+      const row = document.createElement('div')
+      row.className = 'settings-field'
+      const label = document.createElement('label')
+      label.textContent = `◈ ${ct.name}`
+      const btns = document.createElement('div')
+      btns.className = 'settings-inline'
+      const edit = this.button('EDIT', () => this.openThemeEditor(panel, { ...ct }, false))
+      edit.classList.add('settings-button-inline')
+      const del = this.button('✕', () => {
+        this.customThemes = this.customThemes.filter((t) => t.id !== ct.id)
+        this.persistThemes()
+        if (this.tabs.getSettings().themeId === ct.id) this.tabs.applyTheme(THEMES[0].id)
+        this.show()
+      })
+      del.classList.add('settings-button-inline', 'settings-button-danger')
+      btns.append(edit, del)
+      row.append(label, btns)
+      panel.appendChild(row)
+    }
+    panel.appendChild(
+      this.button('+ NEW THEME (copy current)', () => {
+        const cur = getTheme(this.tabs.getSettings().themeId)
+        const ct = themeToCustom(cur, `theme-${Date.now()}`, `${cur.name} Custom`)
+        this.openThemeEditor(panel, ct, true)
+      })
+    )
+
     // ---- TEXT ----
     panel.appendChild(this.section('TEXT'))
     this.fontSelect = this.select(
@@ -269,6 +313,28 @@ export class SettingsPanel {
     })
     volWrap.append(vol, volVal)
     panel.appendChild(this.field('Volume', volWrap))
+
+    panel.appendChild(
+      this.field(
+        'PLEASE STAND BY idle screen',
+        this.checkbox(s.idleScreen, (v) => {
+          this.tabs.updateSetting({ idleScreen: v })
+          configureIdle(v, this.tabs.getSettings().idleMinutes)
+        })
+      )
+    )
+    const idleMin = document.createElement('input')
+    idleMin.type = 'number'
+    idleMin.min = '1'
+    idleMin.max = '120'
+    idleMin.value = String(s.idleMinutes)
+    idleMin.className = 'settings-text settings-num'
+    idleMin.addEventListener('change', () => {
+      const v = Math.max(1, Math.min(120, Number(idleMin.value) || 10))
+      this.tabs.updateSetting({ idleMinutes: v })
+      configureIdle(this.tabs.getSettings().idleScreen, v)
+    })
+    panel.appendChild(this.field('Idle minutes', idleMin))
 
     // ---- SYSTEM ----
     panel.appendChild(this.section('SYSTEM'))
@@ -385,6 +451,7 @@ export class SettingsPanel {
         launchHack()
       })
     )
+    panel.appendChild(this.button('OPEN ERROR LOG', () => window.win.openLog()))
     panel.appendChild(this.button('EXPORT SETTINGS', () => void this.exportSettings()))
 
     const importInput = document.createElement('input')
@@ -396,6 +463,83 @@ export class SettingsPanel {
     panel.appendChild(this.button('IMPORT SETTINGS', () => importInput.click()))
 
     this.overlay.appendChild(panel)
+  }
+
+  // ---- Custom theme editor --------------------------------------------------------
+
+  private persistThemes(): void {
+    window.config.saveCustomThemes(this.customThemes)
+    registerCustomThemes(this.customThemes)
+  }
+
+  private colorInput(value: string, onChange: (v: string) => void): HTMLInputElement {
+    const i = document.createElement('input')
+    i.type = 'color'
+    i.value = /^#[0-9a-f]{6}$/i.test(value) ? value : '#45ff8a'
+    i.addEventListener('input', () => onChange(i.value))
+    return i
+  }
+
+  private openThemeEditor(panel: HTMLElement, ct: CustomTheme, isNew: boolean): void {
+    panel.querySelector('.theme-editor')?.remove()
+    const ed = document.createElement('div')
+    ed.className = 'theme-editor'
+
+    const title = document.createElement('div')
+    title.className = 'settings-section'
+    title.textContent = isNew ? 'NEW THEME' : `EDIT: ${ct.name.toUpperCase()}`
+    ed.appendChild(title)
+
+    const name = document.createElement('input')
+    name.type = 'text'
+    name.className = 'settings-text'
+    name.value = ct.name
+    name.addEventListener('input', () => (ct.name = name.value))
+    ed.appendChild(this.field('Name', name))
+
+    const colorField = (label: string, get: () => string, set: (v: string) => void): void => {
+      ed.appendChild(this.field(label, this.colorInput(get(), set)))
+    }
+    colorField('Background', () => ct.bg, (v) => (ct.bg = v))
+    colorField('Text', () => ct.fg, (v) => (ct.fg = v))
+    colorField('UI accent', () => ct.dim, (v) => (ct.dim = v))
+    colorField('Glow', () => ct.glowColor, (v) => (ct.glowColor = v))
+    colorField('Cursor', () => ct.cursor, (v) => (ct.cursor = v))
+
+    const ansiLabel = document.createElement('div')
+    ansiLabel.className = 'settings-section'
+    ansiLabel.textContent = 'ANSI COLORS'
+    ed.appendChild(ansiLabel)
+
+    const grid = document.createElement('div')
+    grid.className = 'ansi-grid'
+    ANSI_LABELS.forEach((key, i) => {
+      const cell = document.createElement('div')
+      cell.className = 'ansi-cell'
+      cell.title = key
+      cell.appendChild(this.colorInput(ct.ansi[i] ?? ct.fg, (v) => (ct.ansi[i] = v)))
+      grid.appendChild(cell)
+    })
+    ed.appendChild(grid)
+
+    const row = document.createElement('div')
+    row.className = 'settings-inline'
+    const save = this.button('SAVE & APPLY', () => {
+      if (!ct.name.trim()) ct.name = 'Custom Theme'
+      this.customThemes = [...this.customThemes.filter((t) => t.id !== ct.id), ct]
+      this.persistThemes()
+      this.tabs.applyTheme(ct.id)
+      this.show()
+    })
+    save.classList.add('settings-button-inline')
+    const cancel = this.button('CANCEL', () => ed.remove())
+    cancel.classList.add('settings-button-inline')
+    row.append(save, cancel)
+    ed.appendChild(row)
+
+    // Insert at the end of the DISPLAY section (just before the TEXT header).
+    const sections = panel.querySelectorAll('.settings-section')
+    panel.insertBefore(ed, sections[1] ?? null)
   }
 
   // ---- Profiles editor ----------------------------------------------------------
@@ -423,6 +567,14 @@ export class SettingsPanel {
     row.appendChild(mkInput('p-shell', p.shell, 'C:\\path\\to\\shell.exe'))
     row.appendChild(mkInput('p-args', p.args.join(' '), 'args'))
 
+    const color = document.createElement('input')
+    color.type = 'color'
+    color.className = 'p-color'
+    color.title = 'Tab accent color'
+    color.value = p.color && /^#[0-9a-f]{6}$/i.test(p.color) ? p.color : '#45ff8a'
+    color.addEventListener('change', () => this.saveProfiles(container, defSelect))
+    row.appendChild(color)
+
     const del = this.button('✕', () => {
       row.remove()
       this.saveProfiles(container, defSelect)
@@ -442,6 +594,7 @@ export class SettingsPanel {
           .querySelector<HTMLInputElement>('.p-args')!
           .value.split(' ')
           .filter(Boolean),
+        color: row.querySelector<HTMLInputElement>('.p-color')?.value,
         custom: true as const
       }))
       .filter((p) => p.shell)
@@ -498,6 +651,7 @@ export class SettingsPanel {
     const data = {
       settings: cfg.settings,
       customFonts: cfg.customFonts,
+      customThemes: cfg.customThemes,
       customProfiles: cfg.customProfiles,
       defaultProfileId: cfg.defaultProfileId,
       workspaces: cfg.workspaces
@@ -517,6 +671,7 @@ export class SettingsPanel {
       const parsed = JSON.parse(await file.text())
       if (parsed.settings) window.config.saveSettings(parsed.settings)
       if (parsed.customFonts) window.config.saveCustomFonts(parsed.customFonts)
+      if (parsed.customThemes) window.config.saveCustomThemes(parsed.customThemes)
       if (parsed.customProfiles) {
         window.config.saveProfiles(
           parsed.customProfiles,

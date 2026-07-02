@@ -2,12 +2,20 @@ import '@xterm/xterm/css/xterm.css'
 import './fonts.css'
 import './style.css'
 import { TabManager } from './tabs'
-import { setTheme, setFont, setColorMode, addFontOption, loadCustomFont } from './theme'
+import {
+  setTheme,
+  setFont,
+  setColorMode,
+  addFontOption,
+  loadCustomFont,
+  registerCustomThemes
+} from './theme'
 import { initCrtOverlays, setCrtLevel, runBootSequence } from './crt'
 import { SettingsPanel } from './settings'
 import { configureSound, bootSound, powerOffSound } from './sound'
 import { setPasteGuardEnabled } from './paste-guard'
 import { launchHack } from './hack'
+import { configureIdle } from './idle'
 
 function wireWindowControls(powerOffClose: () => void): void {
   document.getElementById('btn-min')?.addEventListener('click', () => window.win.minimize())
@@ -21,12 +29,20 @@ function wireWindowControls(powerOffClose: () => void): void {
   })
 }
 
-function wireSearchBar(getActive: () => import('./session').TerminalSession | undefined): void {
+function wireSearchBar(tabs: TabManager): void {
+  const getActive = (): import('./session').TerminalSession | undefined => tabs.active()
   const bar = document.getElementById('search-bar')!
   const input = document.getElementById('search-input') as HTMLInputElement
+  const count = document.getElementById('search-count')!
+
+  tabs.onSearchResults = (index, total) => {
+    count.textContent = total > 0 ? `${index + 1}/${total}` : input.value ? '0/0' : ''
+  }
 
   const close = (): void => {
     bar.classList.remove('open')
+    count.textContent = ''
+    getActive()?.clearSearch()
     getActive()?.term.focus()
   }
 
@@ -81,11 +97,13 @@ async function boot(): Promise<void> {
   }
 
   // Apply saved appearance/behavior before creating any terminals.
+  registerCustomThemes(cfg.customThemes)
   setTheme(cfg.settings.themeId)
   setColorMode(cfg.settings.colorMode)
   setFont(cfg.settings.fontFamily, cfg.settings.fontSize)
   setPasteGuardEnabled(cfg.settings.pasteGuard)
   configureSound(cfg.settings.soundEnabled, cfg.settings.soundVolume)
+  configureIdle(cfg.settings.idleScreen, cfg.settings.idleMinutes)
 
   // CRT effect layers + level.
   const terminalsEl = document.getElementById('terminals')!
@@ -114,12 +132,39 @@ async function boot(): Promise<void> {
   tabs.closeApp = powerOffClose
 
   // Settings panel (gear button in the tab bar).
-  const settings = new SettingsPanel(tabs, cfg.customFonts, cfg.workspaces)
+  const settings = new SettingsPanel(tabs, cfg.customFonts, cfg.workspaces, cfg.customThemes)
   document.getElementById('btn-settings')?.addEventListener('click', () => settings.toggle())
 
   // Search in scrollback (Ctrl+Shift+F) and the hacking minigame (Ctrl+Shift+H).
-  wireSearchBar(() => tabs.active())
+  wireSearchBar(tabs)
   document.addEventListener('app:hack', () => launchHack())
+
+  // RobCo-styled prompt when an update has downloaded and is ready.
+  window.win.onUpdateReady((version) => {
+    if (document.getElementById('update-overlay')) return
+    const overlay = document.createElement('div')
+    overlay.id = 'update-overlay'
+    const panel = document.createElement('div')
+    panel.id = 'update-panel'
+    const title = document.createElement('div')
+    title.className = 'paste-title'
+    title.textContent = `ROBCO SYSTEM UPDATE v${version} READY`
+    const note = document.createElement('div')
+    note.className = 'paste-note'
+    note.textContent = 'Install now and restart, or keep working and update on next launch.'
+    const row = document.createElement('div')
+    row.className = 'paste-buttons'
+    const install = document.createElement('button')
+    install.textContent = 'INSTALL NOW'
+    install.addEventListener('click', () => window.win.installUpdate())
+    const later = document.createElement('button')
+    later.textContent = 'LATER'
+    later.addEventListener('click', () => overlay.remove())
+    row.append(install, later)
+    panel.append(title, note, row)
+    overlay.appendChild(panel)
+    document.body.appendChild(overlay)
+  })
 
   if (cfg.settings.restoreSession && cfg.session.tabs.length > 0) {
     await tabs.restore(cfg.session.tabs)

@@ -9,7 +9,8 @@ export type {
   Workspace,
   AppSettings,
   AppConfig,
-  CustomFont
+  CustomFont,
+  CustomTheme
 } from '../shared/types'
 
 function fileExists(p: string): boolean {
@@ -30,7 +31,8 @@ function detectProfiles(): Profile[] {
     id: 'powershell',
     name: 'PowerShell',
     shell: join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    args: []
+    args: [],
+    color: '#3b9eff'
   })
 
   // PowerShell 7+ (pwsh), if installed
@@ -40,7 +42,7 @@ function detectProfiles(): Profile[] {
   ]
   const pwsh = pwshCandidates.find(fileExists)
   if (pwsh) {
-    profiles.push({ id: 'pwsh', name: 'PowerShell 7', shell: pwsh, args: [] })
+    profiles.push({ id: 'pwsh', name: 'PowerShell 7', shell: pwsh, args: [], color: '#2bd9d9' })
   }
 
   // Command Prompt (always present)
@@ -48,7 +50,8 @@ function detectProfiles(): Profile[] {
     id: 'cmd',
     name: 'Command Prompt',
     shell: join(sysRoot, 'System32', 'cmd.exe'),
-    args: []
+    args: [],
+    color: '#ffd23b'
   })
 
   // Git Bash, if installed
@@ -58,13 +61,19 @@ function detectProfiles(): Profile[] {
   ]
   const gitBash = gitBashCandidates.find(fileExists)
   if (gitBash) {
-    profiles.push({ id: 'git-bash', name: 'Git Bash', shell: gitBash, args: ['--login', '-i'] })
+    profiles.push({
+      id: 'git-bash',
+      name: 'Git Bash',
+      shell: gitBash,
+      args: ['--login', '-i'],
+      color: '#ff7a45'
+    })
   }
 
   // WSL, if present
   const wsl = join(sysRoot, 'System32', 'wsl.exe')
   if (fileExists(wsl)) {
-    profiles.push({ id: 'wsl', name: 'WSL', shell: wsl, args: [] })
+    profiles.push({ id: 'wsl', name: 'WSL', shell: wsl, args: [], color: '#c17bff' })
   }
 
   return profiles
@@ -97,9 +106,12 @@ function defaultConfig(): AppConfig {
       quakeEnabled: true,
       quakeHotkey: 'CommandOrControl+Shift+`',
       closeToTray: false,
-      autoStart: false
+      autoStart: false,
+      idleScreen: true,
+      idleMinutes: 10
     },
-    customFonts: []
+    customFonts: [],
+    customThemes: []
   }
 }
 
@@ -136,7 +148,8 @@ export function loadConfig(): AppConfig {
         settings: { ...base.settings, ...(parsed.settings || {}) },
         session: parsed.session || base.session,
         workspaces: parsed.workspaces || base.workspaces,
-        customFonts: parsed.customFonts || base.customFonts
+        customFonts: parsed.customFonts || base.customFonts,
+        customThemes: parsed.customThemes || base.customThemes
       }
       return cache
     } catch {

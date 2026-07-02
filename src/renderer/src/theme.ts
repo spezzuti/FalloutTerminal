@@ -1,5 +1,5 @@
 import type { ITheme } from '@xterm/xterm'
-import type { ColorMode } from '../../shared/types'
+import type { ColorMode, CustomTheme } from '../../shared/types'
 
 export interface Theme {
   id: string
@@ -10,6 +10,8 @@ export interface Theme {
   dim: string
   glow: string
   xterm: ITheme
+  /** True for user-created themes (editable in settings). */
+  custom?: boolean
 }
 
 /** Build a monochrome-phosphor xterm palette from a base fg/bg. */
@@ -87,6 +89,81 @@ export const FONTS: FontOption[] = [
 export function getTheme(id: string): Theme {
   return THEMES.find((t) => t.id === id) ?? THEMES[0]
 }
+
+export function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return `rgba(69, 255, 138, ${alpha})`
+  const n = parseInt(m[1], 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
+const ANSI_KEYS = [
+  'black',
+  'red',
+  'green',
+  'yellow',
+  'blue',
+  'magenta',
+  'cyan',
+  'white',
+  'brightBlack',
+  'brightRed',
+  'brightGreen',
+  'brightYellow',
+  'brightBlue',
+  'brightMagenta',
+  'brightCyan',
+  'brightWhite'
+] as const
+
+/** Build a runtime Theme from a user-created custom theme. */
+export function buildTheme(ct: CustomTheme): Theme {
+  const xterm: ITheme = {
+    background: ct.bg,
+    foreground: ct.fg,
+    cursor: ct.cursor,
+    cursorAccent: ct.bg,
+    selectionBackground: hexToRgba(ct.fg, 0.3)
+  }
+  ANSI_KEYS.forEach((k, i) => {
+    ;(xterm as Record<string, string>)[k] = ct.ansi[i] ?? ct.fg
+  })
+  return {
+    id: ct.id,
+    name: ct.name,
+    custom: true,
+    bg: ct.bg,
+    fg: ct.fg,
+    dim: ct.dim,
+    glow: hexToRgba(ct.glowColor, 0.38),
+    xterm
+  }
+}
+
+/** Replace the registered custom themes (built-ins are kept). */
+export function registerCustomThemes(customs: CustomTheme[]): void {
+  for (let i = THEMES.length - 1; i >= 0; i--) {
+    if (THEMES[i].custom) THEMES.splice(i, 1)
+  }
+  for (const ct of customs) THEMES.push(buildTheme(ct))
+}
+
+/** Snapshot the current theme's values as a starting point for a new custom theme. */
+export function themeToCustom(t: Theme, id: string, name: string): CustomTheme {
+  const x = t.xterm as Record<string, string | undefined>
+  return {
+    id,
+    name,
+    bg: t.bg,
+    fg: t.fg,
+    dim: t.dim,
+    glowColor: t.fg,
+    cursor: x.cursor ?? t.fg,
+    ansi: ANSI_KEYS.map((k) => x[k] ?? t.fg)
+  }
+}
+
+export const ANSI_LABELS = ANSI_KEYS
 
 /** Add a font to the selectable list (e.g. a user-uploaded custom font). */
 export function addFontOption(family: string, name: string): void {
