@@ -276,8 +276,10 @@ body,
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  /* extra bottom room so the prompt doesn't sit flush on the edge */
-  padding: 8px 10px 16px;
+  /* NO padding here: the fit addon reads this element's height, and with
+     border-box sizing any padding here makes it compute one row too many —
+     which renders the prompt clipped under the bottom edge. Padding lives on
+     .xterm below, which the fit addon subtracts correctly. */
 }
 
 /* Split-pane containers */
@@ -316,9 +318,11 @@ body,
   opacity: 1;
 }
 
-/* xterm fills its pane */
+/* xterm fills its pane; padding here is subtracted by the fit addon, giving
+   the text comfortable margins with an exactly-fitting row grid. */
 .xterm {
   height: 100%;
+  padding: 8px 10px 14px;
 }
 
 /* Multi-line paste guard dialog */

@@ -295,6 +295,20 @@ app.whenReady().then(() => {
   createTray()
   applySystemSettings()
 
+  // Auto-update from GitHub releases (installed builds only; portable exes
+  // and dev runs skip this). Fails silently offline.
+  if (app.isPackaged) {
+    void (async (): Promise<void> => {
+      try {
+        const { autoUpdater } = await import('electron-updater')
+        autoUpdater.on('error', (e) => logError('autoUpdater', e))
+        await autoUpdater.checkForUpdatesAndNotify()
+      } catch (e) {
+        logError('autoUpdater init', e)
+      }
+    })()
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
