@@ -1,12 +1,11 @@
 name: Release
 
-# Build and publish a GitHub release whenever a version tag is pushed:
-#   git tag v0.2.0 && git push --tags
+# STATUS: manual-only. The native node-pty rebuild hangs indefinitely inside
+# @electron/rebuild on GitHub's Windows runners (silent stall in the
+# "preparing" phase; three attempts, verbose logs swallowed). Official release
+# path is local: scripts/release.ps1. Kept for future debugging via the
+# Actions tab "Run workflow" button.
 on:
-  push:
-    tags:
-      - 'v*'
-  # Manual runs for debugging the pipeline without cutting a release tag.
   workflow_dispatch:
 
 permissions:
