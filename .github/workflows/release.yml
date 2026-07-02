@@ -12,7 +12,8 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    # Pinned (not -latest): guaranteed VS2022 toolchain for the node-pty build.
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
