@@ -6,7 +6,8 @@ import type {
   SavedTab,
   AppSettings,
   Workspace,
-  CustomFont
+  CustomFont,
+  Profile
 } from '../shared/types'
 
 // A minimal, explicit API surface exposed to the renderer. No raw Node/ipc.
@@ -23,6 +24,15 @@ const api = {
 
   kill: (id: string): void => {
     ipcRenderer.send('pty:kill', id)
+  },
+
+  killAll: (): void => {
+    ipcRenderer.send('pty:kill-all')
+  },
+
+  /** Acknowledge rendered output for flow control. */
+  ack: (id: string, length: number): void => {
+    ipcRenderer.send('pty:ack', id, length)
   },
 
   onData: (cb: (id: string, data: string) => void): (() => void) => {
@@ -42,6 +52,7 @@ const win = {
   minimize: (): void => ipcRenderer.send('win:minimize'),
   toggleMaximize: (): void => ipcRenderer.send('win:toggle-maximize'),
   close: (): void => ipcRenderer.send('win:close'),
+  openExternal: (url: string): void => ipcRenderer.send('app:open-external', url),
 
   onMaximizeChange: (cb: (maximized: boolean) => void): (() => void) => {
     const listener = (_e: unknown, maximized: boolean): void => cb(maximized)
@@ -63,7 +74,9 @@ const config = {
   saveWorkspaces: (workspaces: Workspace[]): void =>
     ipcRenderer.send('config:save-workspaces', workspaces),
   saveCustomFonts: (fonts: CustomFont[]): void =>
-    ipcRenderer.send('config:save-custom-fonts', fonts)
+    ipcRenderer.send('config:save-custom-fonts', fonts),
+  saveProfiles: (customProfiles: Profile[], defaultProfileId: string): void =>
+    ipcRenderer.send('config:save-profiles', customProfiles, defaultProfileId)
 }
 
 contextBridge.exposeInMainWorld('term', api)

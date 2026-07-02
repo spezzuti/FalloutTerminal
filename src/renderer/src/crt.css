@@ -9,6 +9,7 @@
   --flicker-max: 0;
   --curve-radius: 0px;
   --text-glow: 0px;
+  --burn-opacity: 0;
 }
 
 #app.crt-low {
@@ -18,6 +19,7 @@
   --flicker-max: 0.02;
   --curve-radius: 4px;
   --text-glow: 2px;
+  --burn-opacity: 0.35;
 }
 
 #app.crt-medium {
@@ -27,6 +29,7 @@
   --flicker-max: 0.04;
   --curve-radius: 10px;
   --text-glow: 4px;
+  --burn-opacity: 0.6;
 }
 
 #app.crt-high {
@@ -36,6 +39,7 @@
   --flicker-max: 0.035;
   --curve-radius: 18px;
   --text-glow: 7px;
+  --burn-opacity: 1;
 }
 
 /* Round the terminal area at higher levels to suggest tube curvature. */
@@ -104,9 +108,52 @@
     0 0 calc(var(--text-glow) * 2) var(--crt-glow);
 }
 
+/* Faint uneven phosphor wear, like a CRT that's been on for 200 years. */
+.crt-burn {
+  background:
+    radial-gradient(ellipse 42% 30% at 22% 28%, rgba(170, 255, 200, 0.05), transparent 70%),
+    radial-gradient(ellipse 30% 22% at 76% 66%, rgba(170, 255, 200, 0.04), transparent 70%),
+    radial-gradient(ellipse 55% 9% at 50% 6%, rgba(170, 255, 200, 0.035), transparent 70%);
+  mix-blend-mode: screen;
+  opacity: var(--burn-opacity);
+}
+
+/* WebGL performance mode renders text on canvas, so soften the overlays a bit. */
+#app.perf-mode {
+  --text-glow: 0px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .crt-flicker {
     animation: none;
+  }
+}
+
+/* ---- CRT power-off ------------------------------------------------------- */
+body {
+  background: #000;
+}
+
+#app.power-off {
+  animation: crt-power-off 0.42s ease-in forwards;
+}
+
+@keyframes crt-power-off {
+  0% {
+    transform: scale(1, 1);
+    filter: brightness(1);
+  }
+  55% {
+    transform: scale(1, 0.008);
+    filter: brightness(2.6);
+  }
+  85% {
+    transform: scale(0.35, 0.004);
+    filter: brightness(5);
+  }
+  100% {
+    transform: scale(0, 0.002);
+    filter: brightness(6);
   }
 }
 

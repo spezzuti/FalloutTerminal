@@ -143,6 +143,17 @@ body,
   text-overflow: ellipsis;
 }
 
+.tab-rename {
+  width: 110px;
+  background: #04120a;
+  border: 1px solid var(--crt-dim);
+  color: var(--crt-fg);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  outline: none;
+}
+
 .tab-close {
   border: none;
   background: transparent;
@@ -259,6 +270,75 @@ body,
 /* xterm fills its pane */
 .xterm {
   height: 100%;
+}
+
+/* Multi-line paste guard dialog */
+#paste-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 940;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#paste-panel {
+  width: 420px;
+  max-width: 90vw;
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-dim);
+  box-shadow: 0 0 24px var(--crt-glow);
+  color: var(--crt-fg);
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  padding: 16px 18px;
+}
+
+.paste-title {
+  font-size: 15px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 6px var(--crt-glow);
+  margin-bottom: 6px;
+}
+
+.paste-note {
+  font-size: 12px;
+  color: var(--crt-dim);
+  margin-bottom: 10px;
+}
+
+.paste-preview {
+  background: #04120a;
+  border: 1px solid var(--crt-dim);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 8px;
+  margin: 0 0 12px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre;
+}
+
+.paste-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.paste-buttons button {
+  flex: 1;
+  padding: 7px;
+  background: transparent;
+  color: var(--crt-fg);
+  border: 1px solid var(--crt-dim);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.paste-buttons button:hover {
+  background: rgba(51, 255, 102, 0.14);
+  text-shadow: 0 0 6px var(--crt-glow);
 }
 
 /* In-scrollback search bar (Ctrl+Shift+F) */

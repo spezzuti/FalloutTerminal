@@ -2,14 +2,17 @@ import '@xterm/xterm/css/xterm.css'
 import './fonts.css'
 import './style.css'
 import { TabManager } from './tabs'
-import { setTheme, setFont, addFontOption, loadCustomFont } from './theme'
+import { setTheme, setFont, setColorMode, addFontOption, loadCustomFont } from './theme'
 import { initCrtOverlays, setCrtLevel, runBootSequence } from './crt'
 import { SettingsPanel } from './settings'
+import { configureSound, bootSound, powerOffSound } from './sound'
+import { setPasteGuardEnabled } from './paste-guard'
+import { launchHack } from './hack'
 
-function wireWindowControls(): void {
+function wireWindowControls(powerOffClose: () => void): void {
   document.getElementById('btn-min')?.addEventListener('click', () => window.win.minimize())
   document.getElementById('btn-max')?.addEventListener('click', () => window.win.toggleMaximize())
-  document.getElementById('btn-close')?.addEventListener('click', () => window.win.close())
+  document.getElementById('btn-close')?.addEventListener('click', powerOffClose)
 
   // Swap the maximize button glyph to "restore" while maximized.
   window.win.onMaximizeChange((maximized) => {
@@ -46,9 +49,19 @@ function wireSearchBar(getActive: () => import('./session').TerminalSession | un
 }
 
 async function boot(): Promise<void> {
-  wireWindowControls()
-
   const cfg = await window.config.load()
+
+  // CRT power-off close: collapse animation + blip, then actually close.
+  let closing = false
+  const powerOffClose = (): void => {
+    if (closing) return
+    closing = true
+    powerOffSound()
+    document.getElementById('app')?.classList.add('power-off')
+    window.setTimeout(() => window.win.close(), 440)
+  }
+
+  wireWindowControls(powerOffClose)
 
   // Re-register any user-uploaded fonts so they're available before terminals start.
   for (const cf of cfg.customFonts) {
@@ -60,16 +73,23 @@ async function boot(): Promise<void> {
     }
   }
 
-  // Apply saved theme + font before creating any terminals so they start correct.
+  // Apply saved appearance/behavior before creating any terminals.
   setTheme(cfg.settings.themeId)
+  setColorMode(cfg.settings.colorMode)
   setFont(cfg.settings.fontFamily, cfg.settings.fontSize)
+  setPasteGuardEnabled(cfg.settings.pasteGuard)
+  configureSound(cfg.settings.soundEnabled, cfg.settings.soundVolume)
 
   // CRT effect layers + level.
   const terminalsEl = document.getElementById('terminals')!
   initCrtOverlays(terminalsEl)
   setCrtLevel(cfg.settings.crtLevel)
+  if (cfg.settings.performanceMode) {
+    document.getElementById('app')?.classList.add('perf-mode')
+  }
   if (cfg.settings.bootSequence && cfg.settings.crtLevel !== 'off') {
     runBootSequence()
+    bootSound()
   }
 
   const tabs = new TabManager(
@@ -84,13 +104,15 @@ async function boot(): Promise<void> {
     cfg.defaultProfileId,
     cfg.settings
   )
+  tabs.closeApp = powerOffClose
 
   // Settings panel (gear button in the tab bar).
-  const settings = new SettingsPanel(tabs, cfg.customFonts)
+  const settings = new SettingsPanel(tabs, cfg.customFonts, cfg.workspaces)
   document.getElementById('btn-settings')?.addEventListener('click', () => settings.toggle())
 
-  // Search in scrollback (Ctrl+Shift+F).
+  // Search in scrollback (Ctrl+Shift+F) and the hacking minigame (Ctrl+Shift+H).
   wireSearchBar(() => tabs.active())
+  document.addEventListener('app:hack', () => launchHack())
 
   if (cfg.settings.restoreSession && cfg.session.tabs.length > 0) {
     await tabs.restore(cfg.session.tabs)

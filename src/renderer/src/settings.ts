@@ -1,22 +1,33 @@
 import './settings.css'
 import { THEMES, FONTS, addFontOption, loadCustomFont } from './theme'
 import { CRT_LEVELS, runBootSequence } from './crt'
+import { launchHack } from './hack'
 import type { TabManager } from './tabs'
-import type { CrtLevel, CustomFont } from '../../shared/types'
+import type {
+  CrtLevel,
+  ColorMode,
+  CursorStyle,
+  CustomFont,
+  Profile,
+  Workspace
+} from '../../shared/types'
 
 /**
- * The settings panel: a modal for adjusting theme, font, size, CRT level, boot
- * and session behavior, and uploading custom fonts. All changes apply live and
- * persist through the TabManager / config bridge.
+ * The settings panel: theme, colors, fonts, CRT, behavior, profiles,
+ * workspaces, and data import/export. Rebuilt on every open so controls always
+ * reflect live values; all changes apply immediately and persist.
  */
 export class SettingsPanel {
   private readonly overlay: HTMLDivElement
   private fontSelect!: HTMLSelectElement
+  private workspaces: Workspace[] = []
 
   constructor(
     private readonly tabs: TabManager,
-    private readonly customFonts: CustomFont[]
+    private readonly customFonts: CustomFont[],
+    workspaces: Workspace[]
   ) {
+    this.workspaces = workspaces
     this.overlay = document.createElement('div')
     this.overlay.id = 'settings-overlay'
     this.overlay.addEventListener('click', (e) => {
@@ -31,8 +42,6 @@ export class SettingsPanel {
   }
 
   show(): void {
-    // Rebuild each open so controls always reflect the live settings
-    // (they can change via keyboard shortcuts while the panel is closed).
     this.overlay.replaceChildren()
     this.build()
     this.overlay.classList.add('open')
@@ -43,6 +52,8 @@ export class SettingsPanel {
     this.tabs.active()?.term.focus()
   }
 
+  // ---- UI helpers -------------------------------------------------------------
+
   private field(label: string, control: HTMLElement): HTMLDivElement {
     const row = document.createElement('div')
     row.className = 'settings-field'
@@ -52,9 +63,50 @@ export class SettingsPanel {
     return row
   }
 
+  private section(title: string): HTMLDivElement {
+    const el = document.createElement('div')
+    el.className = 'settings-section'
+    el.textContent = title
+    return el
+  }
+
+  private select(
+    options: Array<{ value: string; label: string }>,
+    selected: string,
+    onChange: (v: string) => void
+  ): HTMLSelectElement {
+    const sel = document.createElement('select')
+    for (const o of options) {
+      const opt = document.createElement('option')
+      opt.value = o.value
+      opt.textContent = o.label
+      if (o.value === selected) opt.selected = true
+      sel.appendChild(opt)
+    }
+    sel.addEventListener('change', () => onChange(sel.value))
+    return sel
+  }
+
+  private checkbox(checked: boolean, onChange: (v: boolean) => void): HTMLInputElement {
+    const box = document.createElement('input')
+    box.type = 'checkbox'
+    box.checked = checked
+    box.addEventListener('change', () => onChange(box.checked))
+    return box
+  }
+
+  private button(label: string, onClick: () => void): HTMLButtonElement {
+    const b = document.createElement('button')
+    b.className = 'settings-button'
+    b.textContent = label
+    b.addEventListener('click', onClick)
+    return b
+  }
+
+  // ---- Panel ------------------------------------------------------------------
+
   private build(): void {
     const s = this.tabs.getSettings()
-
     const panel = document.createElement('div')
     panel.id = 'settings-panel'
 
@@ -69,27 +121,57 @@ export class SettingsPanel {
     header.append(title, close)
     panel.appendChild(header)
 
-    // Theme
-    const themeSel = document.createElement('select')
-    for (const t of THEMES) {
-      const o = document.createElement('option')
-      o.value = t.id
-      o.textContent = t.name
-      if (t.id === s.themeId) o.selected = true
-      themeSel.appendChild(o)
-    }
-    themeSel.addEventListener('change', () => this.tabs.applyTheme(themeSel.value))
-    panel.appendChild(this.field('Theme', themeSel))
+    // ---- DISPLAY ----
+    panel.appendChild(this.section('DISPLAY'))
+    panel.appendChild(
+      this.field(
+        'Theme',
+        this.select(
+          THEMES.map((t) => ({ value: t.id, label: t.name })),
+          s.themeId,
+          (v) => this.tabs.applyTheme(v)
+        )
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Color mode',
+        this.select(
+          [
+            { value: 'mono', label: 'Authentic mono' },
+            { value: 'hybrid', label: 'Hybrid ANSI colors' }
+          ],
+          s.colorMode,
+          (v) => this.tabs.applyColorMode(v as ColorMode)
+        )
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'CRT effects',
+        this.select(
+          CRT_LEVELS.map((l) => ({ value: l, label: l.toUpperCase() })),
+          s.crtLevel,
+          (v) => this.tabs.applyCrt(v as CrtLevel)
+        )
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Performance renderer (less glow)',
+        this.checkbox(s.performanceMode, (v) => this.tabs.applyPerformance(v))
+      )
+    )
 
-    // Font
-    this.fontSelect = document.createElement('select')
-    this.rebuildFontOptions(s.fontFamily)
-    this.fontSelect.addEventListener('change', () =>
-      this.tabs.applyFont(this.fontSelect.value, this.tabs.getSettings().fontSize)
+    // ---- TEXT ----
+    panel.appendChild(this.section('TEXT'))
+    this.fontSelect = this.select(
+      FONTS.map((f) => ({ value: f.family, label: f.name })),
+      s.fontFamily,
+      (v) => this.tabs.applyFont(v, this.tabs.getSettings().fontSize)
     )
     panel.appendChild(this.field('Font', this.fontSelect))
 
-    // Font size
     const sizeWrap = document.createElement('div')
     sizeWrap.className = 'settings-inline'
     const size = document.createElement('input')
@@ -107,54 +189,240 @@ export class SettingsPanel {
     sizeWrap.append(size, sizeVal)
     panel.appendChild(this.field('Font size', sizeWrap))
 
-    // Upload custom font
     const upload = document.createElement('input')
     upload.type = 'file'
     upload.accept = '.ttf,.otf,.woff,.woff2'
     upload.className = 'settings-file'
-    upload.addEventListener('change', () => this.onUpload(upload))
+    upload.addEventListener('change', () => void this.onUpload(upload))
     panel.appendChild(this.field('Upload font', upload))
 
-    // CRT level
-    const crtSel = document.createElement('select')
-    for (const lvl of CRT_LEVELS) {
-      const o = document.createElement('option')
-      o.value = lvl
-      o.textContent = lvl.toUpperCase()
-      if (lvl === s.crtLevel) o.selected = true
-      crtSel.appendChild(o)
-    }
-    crtSel.addEventListener('change', () => this.tabs.applyCrt(crtSel.value as CrtLevel))
-    panel.appendChild(this.field('CRT effects', crtSel))
-
-    // Boot sequence toggle
-    const boot = document.createElement('input')
-    boot.type = 'checkbox'
-    boot.checked = s.bootSequence
-    boot.addEventListener('change', () => this.tabs.updateSetting({ bootSequence: boot.checked }))
-    panel.appendChild(this.field('Boot sequence on launch', boot))
-
-    // Restore session toggle
-    const restore = document.createElement('input')
-    restore.type = 'checkbox'
-    restore.checked = s.restoreSession
-    restore.addEventListener('change', () =>
-      this.tabs.updateSetting({ restoreSession: restore.checked })
+    panel.appendChild(
+      this.field(
+        'Cursor style',
+        this.select(
+          [
+            { value: 'block', label: 'Block' },
+            { value: 'underline', label: 'Underline' },
+            { value: 'bar', label: 'Bar' }
+          ],
+          s.cursorStyle,
+          (v) => this.tabs.applyCursor(v as CursorStyle, this.tabs.getSettings().cursorBlink)
+        )
+      )
     )
-    panel.appendChild(this.field('Restore tabs on launch', restore))
+    panel.appendChild(
+      this.field(
+        'Cursor blink',
+        this.checkbox(s.cursorBlink, (v) =>
+          this.tabs.applyCursor(this.tabs.getSettings().cursorStyle, v)
+        )
+      )
+    )
 
-    // Replay boot
-    const replay = document.createElement('button')
-    replay.className = 'settings-button'
-    replay.textContent = 'Replay boot sequence'
-    replay.addEventListener('click', () => {
-      this.hide()
-      runBootSequence()
+    // ---- BEHAVIOR ----
+    panel.appendChild(this.section('BEHAVIOR'))
+    panel.appendChild(
+      this.field(
+        'Copy on select',
+        this.checkbox(s.copyOnSelect, (v) => this.tabs.applyCopyOnSelect(v))
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Warn on multi-line paste',
+        this.checkbox(s.pasteGuard, (v) => this.tabs.applyPasteGuard(v))
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Restore tabs on launch',
+        this.checkbox(s.restoreSession, (v) => this.tabs.updateSetting({ restoreSession: v }))
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Boot sequence on launch',
+        this.checkbox(s.bootSequence, (v) => this.tabs.updateSetting({ bootSequence: v }))
+      )
+    )
+    panel.appendChild(
+      this.field(
+        'Sound effects',
+        this.checkbox(s.soundEnabled, (v) =>
+          this.tabs.applySound(v, this.tabs.getSettings().soundVolume)
+        )
+      )
+    )
+    const volWrap = document.createElement('div')
+    volWrap.className = 'settings-inline'
+    const vol = document.createElement('input')
+    vol.type = 'range'
+    vol.min = '0'
+    vol.max = '100'
+    vol.value = String(Math.round(s.soundVolume * 100))
+    const volVal = document.createElement('span')
+    volVal.className = 'settings-val'
+    volVal.textContent = vol.value
+    vol.addEventListener('input', () => {
+      volVal.textContent = vol.value
+      this.tabs.applySound(this.tabs.getSettings().soundEnabled, Number(vol.value) / 100)
     })
-    panel.appendChild(replay)
+    volWrap.append(vol, volVal)
+    panel.appendChild(this.field('Volume', volWrap))
+
+    // ---- PROFILES ----
+    panel.appendChild(this.section('PROFILES'))
+    const defSelect = this.select(
+      this.tabs.getProfiles().map((p) => ({ value: p.id, label: p.name })),
+      this.tabs.getDefaultProfileId(),
+      () => this.saveProfiles(profileRows, defSelect)
+    )
+    panel.appendChild(this.field('Default shell', defSelect))
+
+    const profileRows = document.createElement('div')
+    profileRows.className = 'profile-rows'
+    for (const p of this.tabs.getProfiles().filter((p) => p.custom)) {
+      profileRows.appendChild(this.profileRow(p, profileRows, defSelect))
+    }
+    panel.appendChild(profileRows)
+    panel.appendChild(
+      this.button('+ ADD CUSTOM PROFILE', () => {
+        profileRows.appendChild(
+          this.profileRow(
+            { id: `custom-${Date.now()}`, name: '', shell: '', args: [], custom: true },
+            profileRows,
+            defSelect
+          )
+        )
+      })
+    )
+
+    // ---- WORKSPACES ----
+    panel.appendChild(this.section('WORKSPACES'))
+    const wsRow = document.createElement('div')
+    wsRow.className = 'settings-inline ws-save'
+    const wsName = document.createElement('input')
+    wsName.type = 'text'
+    wsName.placeholder = 'workspace name'
+    wsName.className = 'settings-text'
+    const wsSave = this.button('SAVE CURRENT TABS', () => {
+      const name = wsName.value.trim()
+      if (!name) return
+      this.workspaces = [
+        ...this.workspaces.filter((w) => w.name !== name),
+        { name, tabs: this.tabs.snapshot() }
+      ]
+      window.config.saveWorkspaces(this.workspaces)
+      this.show() // re-render list
+    })
+    wsSave.classList.add('settings-button-inline')
+    wsRow.append(wsName, wsSave)
+    panel.appendChild(wsRow)
+
+    for (const ws of this.workspaces) {
+      const row = document.createElement('div')
+      row.className = 'settings-field ws-row'
+      const label = document.createElement('label')
+      label.textContent = `${ws.name} (${ws.tabs.length} tabs)`
+      const btns = document.createElement('div')
+      btns.className = 'settings-inline'
+      const load = this.button('LOAD', () => {
+        this.hide()
+        void this.tabs.loadWorkspace(ws)
+      })
+      load.classList.add('settings-button-inline')
+      const del = this.button('✕', () => {
+        this.workspaces = this.workspaces.filter((w) => w.name !== ws.name)
+        window.config.saveWorkspaces(this.workspaces)
+        this.show()
+      })
+      del.classList.add('settings-button-inline', 'settings-button-danger')
+      btns.append(load, del)
+      row.append(label, btns)
+      panel.appendChild(row)
+    }
+
+    // ---- EXTRAS ----
+    panel.appendChild(this.section('EXTRAS'))
+    panel.appendChild(
+      this.button('REPLAY BOOT SEQUENCE', () => {
+        this.hide()
+        runBootSequence()
+      })
+    )
+    panel.appendChild(
+      this.button('ROBCO HACKING MINIGAME  (Ctrl+Shift+H)', () => {
+        this.hide()
+        launchHack()
+      })
+    )
+    panel.appendChild(this.button('EXPORT SETTINGS', () => void this.exportSettings()))
+
+    const importInput = document.createElement('input')
+    importInput.type = 'file'
+    importInput.accept = '.json'
+    importInput.style.display = 'none'
+    importInput.addEventListener('change', () => void this.importSettings(importInput))
+    panel.appendChild(importInput)
+    panel.appendChild(this.button('IMPORT SETTINGS', () => importInput.click()))
 
     this.overlay.appendChild(panel)
   }
+
+  // ---- Profiles editor ----------------------------------------------------------
+
+  private profileRow(
+    p: Profile,
+    container: HTMLElement,
+    defSelect: HTMLSelectElement
+  ): HTMLDivElement {
+    const row = document.createElement('div')
+    row.className = 'profile-row'
+    row.dataset.id = p.id
+
+    const mkInput = (cls: string, value: string, placeholder: string): HTMLInputElement => {
+      const i = document.createElement('input')
+      i.type = 'text'
+      i.className = `settings-text ${cls}`
+      i.value = value
+      i.placeholder = placeholder
+      i.addEventListener('change', () => this.saveProfiles(container, defSelect))
+      return i
+    }
+
+    row.appendChild(mkInput('p-name', p.name, 'name'))
+    row.appendChild(mkInput('p-shell', p.shell, 'C:\\path\\to\\shell.exe'))
+    row.appendChild(mkInput('p-args', p.args.join(' '), 'args'))
+
+    const del = this.button('✕', () => {
+      row.remove()
+      this.saveProfiles(container, defSelect)
+    })
+    del.classList.add('settings-button-inline', 'settings-button-danger')
+    row.appendChild(del)
+    return row
+  }
+
+  private saveProfiles(container: HTMLElement, defSelect: HTMLSelectElement): void {
+    const custom: Profile[] = [...container.querySelectorAll<HTMLDivElement>('.profile-row')]
+      .map((row) => ({
+        id: row.dataset.id!,
+        name: row.querySelector<HTMLInputElement>('.p-name')!.value.trim() || 'Custom',
+        shell: row.querySelector<HTMLInputElement>('.p-shell')!.value.trim(),
+        args: row
+          .querySelector<HTMLInputElement>('.p-args')!
+          .value.split(' ')
+          .filter(Boolean),
+        custom: true as const
+      }))
+      .filter((p) => p.shell)
+
+    window.config.saveProfiles(custom, defSelect.value)
+    const detected = this.tabs.getProfiles().filter((p) => !p.custom)
+    this.tabs.setProfiles([...detected, ...custom], defSelect.value)
+  }
+
+  // ---- Fonts ----------------------------------------------------------------------
 
   private rebuildFontOptions(selected: string): void {
     this.fontSelect.replaceChildren()
@@ -184,15 +452,58 @@ export class SettingsPanel {
       return // invalid font file
     }
 
-    // The selectable value is the CSS family string (with a monospace fallback).
     const value = `"${family}", monospace`
     addFontOption(value, `${family} (custom)`)
     this.customFonts.push({ family, dataUrl })
     window.config.saveCustomFonts(this.customFonts)
 
-    // Refresh the dropdown, select the new font, and apply it live.
     this.rebuildFontOptions(value)
     this.tabs.applyFont(value, this.tabs.getSettings().fontSize)
+    input.value = ''
+  }
+
+  // ---- Import / export ---------------------------------------------------------------
+
+  private async exportSettings(): Promise<void> {
+    const cfg = await window.config.load()
+    const data = {
+      settings: cfg.settings,
+      customFonts: cfg.customFonts,
+      customProfiles: cfg.customProfiles,
+      defaultProfileId: cfg.defaultProfileId,
+      workspaces: cfg.workspaces
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'fallout-terminal-settings.json'
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  private async importSettings(input: HTMLInputElement): Promise<void> {
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      const parsed = JSON.parse(await file.text())
+      if (parsed.settings) window.config.saveSettings(parsed.settings)
+      if (parsed.customFonts) window.config.saveCustomFonts(parsed.customFonts)
+      if (parsed.customProfiles) {
+        window.config.saveProfiles(
+          parsed.customProfiles,
+          parsed.defaultProfileId ?? this.tabs.getDefaultProfileId()
+        )
+      }
+      if (parsed.workspaces) {
+        this.workspaces = parsed.workspaces
+        window.config.saveWorkspaces(this.workspaces)
+      }
+      // Reload so every subsystem picks the imported values up cleanly.
+      window.term.killAll()
+      location.reload()
+    } catch {
+      /* invalid file: ignore */
+    }
     input.value = ''
   }
 }

@@ -7,9 +7,17 @@ import type { SpawnOptions, SpawnResult } from '../shared/types'
 interface PtySession {
   proc: pty.IPty
   windowId: number
+  /** Bytes sent to the renderer but not yet acknowledged as rendered. */
+  unacked: number
+  paused: boolean
 }
 
 const sessions = new Map<string, PtySession>()
+
+// Flow control: pause the shell when the renderer falls too far behind
+// (e.g. an accidental `cat` of a huge file), resume when it catches up.
+const FLOW_HIGH = 300_000
+const FLOW_LOW = 60_000
 
 /** Pick a sensible default shell for the platform. */
 function defaultShell(): { file: string; args: string[] } {
@@ -41,12 +49,22 @@ export function registerPtyHandlers(ipcMain: IpcMain): void {
     }
 
     const windowId = BrowserWindow.fromWebContents(event.sender)?.id ?? -1
-    sessions.set(opts.id, { proc, windowId })
+    const session: PtySession = { proc, windowId, unacked: 0, paused: false }
+    sessions.set(opts.id, session)
 
     // Stream shell output back to the renderer, tagged with the session id.
     proc.onData((data) => {
       const win = BrowserWindow.fromId(windowId)
       if (win && !win.isDestroyed()) {
+        session.unacked += data.length
+        if (!session.paused && session.unacked > FLOW_HIGH) {
+          try {
+            proc.pause()
+            session.paused = true
+          } catch {
+            /* process may have exited */
+          }
+        }
         win.webContents.send('pty:data', opts.id, data)
       }
     })
@@ -65,6 +83,26 @@ export function registerPtyHandlers(ipcMain: IpcMain): void {
   // Keystrokes / pasted text from the renderer into the shell.
   ipcMain.on('pty:input', (_e: IpcMainEvent, id: string, data: string) => {
     sessions.get(id)?.proc.write(data)
+  })
+
+  // Renderer acknowledges rendered output; resume a paused shell when caught up.
+  ipcMain.on('pty:ack', (_e: IpcMainEvent, id: string, length: number) => {
+    const s = sessions.get(id)
+    if (!s) return
+    s.unacked = Math.max(0, s.unacked - length)
+    if (s.paused && s.unacked < FLOW_LOW) {
+      try {
+        s.proc.resume()
+        s.paused = false
+      } catch {
+        /* process may have exited */
+      }
+    }
+  })
+
+  // Kill every session (used before a renderer reload to avoid orphans).
+  ipcMain.on('pty:kill-all', () => {
+    disposeAllPtys()
   })
 
   // Terminal was resized in the UI; tell the shell.

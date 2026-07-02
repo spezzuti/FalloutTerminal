@@ -76,15 +76,24 @@ function defaultConfig(): AppConfig {
     version: 1,
     profiles,
     defaultProfileId: profiles[0]?.id ?? 'powershell',
+    customProfiles: [],
     session: { tabs: [] },
     workspaces: [],
     settings: {
       themeId: 'pipboy',
+      colorMode: 'mono',
       fontFamily: '"Monofonto", monospace',
       fontSize: 16,
+      cursorStyle: 'block',
+      cursorBlink: true,
       restoreSession: true,
       crtLevel: 'medium',
-      bootSequence: true
+      bootSequence: true,
+      copyOnSelect: false,
+      pasteGuard: true,
+      soundEnabled: true,
+      soundVolume: 0.4,
+      performanceMode: false
     },
     customFonts: []
   }
@@ -109,10 +118,17 @@ export function loadConfig(): AppConfig {
       // Merge with defaults so new fields are filled in on upgrade, and always
       // refresh detected profiles so newly installed shells appear.
       const base = defaultConfig()
+      const customProfiles = (parsed.customProfiles || []).map((p) => ({ ...p, custom: true }))
+      const profiles = [...base.profiles, ...customProfiles]
+      const defaultProfileId = profiles.some((p) => p.id === parsed.defaultProfileId)
+        ? parsed.defaultProfileId!
+        : base.defaultProfileId
       cache = {
         ...base,
         ...parsed,
-        profiles: base.profiles,
+        profiles,
+        customProfiles,
+        defaultProfileId,
         settings: { ...base.settings, ...(parsed.settings || {}) },
         session: parsed.session || base.session,
         workspaces: parsed.workspaces || base.workspaces,

@@ -1,9 +1,33 @@
 import { app, shell, BrowserWindow, ipcMain, IpcMainEvent, Menu, screen } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync } from 'fs'
+import { readFileSync, writeFileSync, appendFileSync, statSync } from 'fs'
 import { registerPtyHandlers, disposeAllPtys } from './pty'
 import { loadConfig, saveConfig } from './config'
-import type { SavedTab, AppSettings, Workspace, CustomFont } from '../shared/types'
+import type { SavedTab, AppSettings, Workspace, CustomFont, Profile } from '../shared/types'
+
+// ---- Error logging ----------------------------------------------------------
+// Main-process failures are otherwise invisible; keep a small rotating log.
+
+function logPath(): string {
+  return join(app.getPath('userData'), 'error.log')
+}
+
+function logError(tag: string, err: unknown): void {
+  try {
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    try {
+      if (statSync(logPath()).size > 512 * 1024) writeFileSync(logPath(), '')
+    } catch {
+      /* no log yet */
+    }
+    appendFileSync(logPath(), `[${new Date().toISOString()}] ${tag}: ${detail}\n`)
+  } catch {
+    /* never let logging crash the app */
+  }
+}
+
+process.on('uncaughtException', (e) => logError('uncaughtException', e))
+process.on('unhandledRejection', (r) => logError('unhandledRejection', r))
 
 // ---- Window geometry persistence -------------------------------------------
 
@@ -63,6 +87,29 @@ function registerConfigHandlers(): void {
     const cfg = loadConfig()
     cfg.customFonts = fonts
     saveConfig(cfg)
+  })
+
+  ipcMain.on(
+    'config:save-profiles',
+    (_e, customProfiles: Profile[], defaultProfileId: string) => {
+      const cfg = loadConfig()
+      cfg.customProfiles = customProfiles.map((p) => ({ ...p, custom: true }))
+      cfg.profiles = [
+        ...cfg.profiles.filter((p) => !p.custom),
+        ...cfg.customProfiles
+      ]
+      cfg.defaultProfileId = cfg.profiles.some((p) => p.id === defaultProfileId)
+        ? defaultProfileId
+        : cfg.defaultProfileId
+      saveConfig(cfg)
+    }
+  )
+
+  // Open http(s) links from terminal output in the system browser.
+  ipcMain.on('app:open-external', (_e, url: string) => {
+    if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+      void shell.openExternal(url)
+    }
   })
 }
 

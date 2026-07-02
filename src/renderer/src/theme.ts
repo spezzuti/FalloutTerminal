@@ -1,4 +1,5 @@
 import type { ITheme } from '@xterm/xterm'
+import type { ColorMode } from '../../shared/types'
 
 export interface Theme {
   id: string
@@ -94,14 +95,48 @@ export function addFontOption(family: string, name: string): void {
   }
 }
 
+// Real ANSI colors (Windows Terminal "Campbell") for hybrid mode: keeps the
+// phosphor background/glow but lets git diffs, ls, errors etc. stay colored.
+const HYBRID_ANSI = {
+  black: '#0c0c0c',
+  red: '#c50f1f',
+  green: '#13a10e',
+  yellow: '#c19c00',
+  blue: '#3b78ff',
+  magenta: '#881798',
+  cyan: '#3a96dd',
+  white: '#cccccc',
+  brightBlack: '#767676',
+  brightRed: '#e74856',
+  brightGreen: '#16c60c',
+  brightYellow: '#f9f1a5',
+  brightBlue: '#3b78ff',
+  brightMagenta: '#b4009e',
+  brightCyan: '#61d6d6',
+  brightWhite: '#f2f2f2'
+}
+
 // ---- Live theme/font state ------------------------------------------------
 
 let _theme = THEMES[0]
 let _fontFamily = FONTS[0].family
 let _fontSize = 15
+let _colorMode: ColorMode = 'mono'
+
+export function setColorMode(mode: ColorMode): void {
+  _colorMode = mode
+}
 
 export function currentXtermTheme(): ITheme {
-  return _theme.xterm
+  if (_colorMode === 'mono') return _theme.xterm
+  return {
+    background: _theme.bg,
+    foreground: _theme.fg,
+    cursor: _theme.fg,
+    cursorAccent: _theme.bg,
+    selectionBackground: 'rgba(255, 255, 255, 0.25)',
+    ...HYBRID_ANSI
+  }
 }
 export function currentFontFamily(): string {
   return _fontFamily

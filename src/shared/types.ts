@@ -21,6 +21,8 @@ export interface Profile {
   args: string[]
   cwd?: string
   color?: string
+  /** True for user-created profiles (editable/deletable in settings). */
+  custom?: boolean
 }
 
 export interface SavedTab {
@@ -35,15 +37,29 @@ export interface Workspace {
 }
 
 export type CrtLevel = 'off' | 'low' | 'medium' | 'high'
+/** 'mono' = authentic phosphor monochrome; 'hybrid' = real ANSI colors on the CRT. */
+export type ColorMode = 'mono' | 'hybrid'
+export type CursorStyle = 'block' | 'underline' | 'bar'
 
 export interface AppSettings {
   themeId: string
+  colorMode: ColorMode
   fontFamily: string
   fontSize: number
+  cursorStyle: CursorStyle
+  cursorBlink: boolean
   restoreSession: boolean
   crtLevel: CrtLevel
   /** Play the RobCo boot animation on launch. */
   bootSequence: boolean
+  copyOnSelect: boolean
+  /** Warn before pasting text that contains newlines. */
+  pasteGuard: boolean
+  soundEnabled: boolean
+  /** 0..1 */
+  soundVolume: number
+  /** WebGL renderer: faster for heavy TUI apps, but disables the glyph glow. */
+  performanceMode: boolean
 }
 
 export interface CustomFont {
@@ -57,6 +73,8 @@ export interface AppConfig {
   version: number
   profiles: Profile[]
   defaultProfileId: string
+  /** User-created profiles (persisted; detected shells are re-scanned each launch). */
+  customProfiles: Profile[]
   session: { tabs: SavedTab[] }
   workspaces: Workspace[]
   settings: AppSettings

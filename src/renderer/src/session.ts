@@ -1,9 +1,13 @@
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon } from '@xterm/addon-search'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import { currentXtermTheme, currentFontFamily, currentFontSize } from './theme'
+import { keyClick } from './sound'
+import { guardedPaste } from './paste-guard'
 import type { ITheme } from '@xterm/xterm'
-import type { Profile } from '../../shared/types'
+import type { Profile, CursorStyle } from '../../shared/types'
 
 let seq = 0
 
@@ -19,13 +23,17 @@ export class TerminalSession {
   readonly term: Terminal
   private readonly fit: FitAddon
   private readonly search: SearchAddon
+  private webgl?: WebglAddon
   private readonly disposers: Array<() => void> = []
 
   /** Clean label shown on the tab (the profile name). */
   title: string
+  /** User-set label from tab rename (overrides `title` when present). */
+  customTitle?: string
   /** Live title the shell reports via OSC (shown as the tab tooltip). */
   oscTitle = ''
   exited = false
+  copyOnSelect = false
 
   /** Called when the shell reports a new title (OSC sequence). */
   onTitleChange?: (s: TerminalSession) => void
@@ -54,6 +62,8 @@ export class TerminalSession {
     this.term.loadAddon(this.fit)
     this.search = new SearchAddon()
     this.term.loadAddon(this.search)
+    // Clickable URLs open in the system browser.
+    this.term.loadAddon(new WebLinksAddon((_e, uri) => window.win.openExternal(uri)))
     // xterm's built-in DOM renderer: text is real DOM, so the CRT phosphor glow
     // (CSS text-shadow) applies per glyph. Fast enough for interactive use.
     this.term.open(this.pane)
@@ -64,8 +74,32 @@ export class TerminalSession {
     })
     this.disposers.push(() => titleSub.dispose())
 
-    // Keystrokes -> shell
-    this.term.onData((data) => window.term.write(this.id, data))
+    // Keystrokes -> shell (with an optional CRT key click)
+    this.term.onData((data) => {
+      keyClick()
+      window.term.write(this.id, data)
+    })
+
+    // Copy-on-select (opt-in via settings).
+    const selSub = this.term.onSelectionChange(() => {
+      if (!this.copyOnSelect) return
+      const sel = this.term.getSelection()
+      if (sel) window.clip.write(sel)
+    })
+    this.disposers.push(() => selSub.dispose())
+
+    // Intercept native paste (Ctrl+V) ahead of xterm so the paste guard can
+    // vet multi-line text. Capture on the pane runs before xterm's handler.
+    this.pane.addEventListener(
+      'paste',
+      (e) => {
+        const text = e.clipboardData?.getData('text') ?? ''
+        e.preventDefault()
+        e.stopPropagation()
+        void guardedPaste(text, (t) => this.term.paste(t))
+      },
+      true
+    )
 
     // Let TabManager intercept tab shortcuts before xterm sends them to the shell.
     this.term.attachCustomKeyEventHandler((e) => (this.keyHandler ? this.keyHandler(e) : true))
@@ -79,9 +113,14 @@ export class TerminalSession {
         window.clip.write(sel)
         this.term.clearSelection()
       } else {
-        this.term.paste(window.clip.read())
+        this.paste()
       }
     })
+  }
+
+  /** Tab label: the user's custom name, else the profile name. */
+  get displayTitle(): string {
+    return this.customTitle ?? this.title
   }
 
   async start(cwd?: string): Promise<void> {
@@ -113,7 +152,27 @@ export class TerminalSession {
   }
 
   paste(): void {
-    this.term.paste(window.clip.read())
+    void guardedPaste(window.clip.read(), (t) => this.term.paste(t))
+  }
+
+  setCursor(style: CursorStyle, blink: boolean): void {
+    this.term.options.cursorStyle = style
+    this.term.options.cursorBlink = blink
+  }
+
+  /** WebGL renderer: faster for heavy TUI output, but no per-glyph glow. */
+  setWebgl(on: boolean): void {
+    if (on && !this.webgl) {
+      try {
+        this.webgl = new WebglAddon()
+        this.term.loadAddon(this.webgl)
+      } catch {
+        this.webgl = undefined
+      }
+    } else if (!on && this.webgl) {
+      this.webgl.dispose()
+      this.webgl = undefined
+    }
   }
 
   findNext(query: string, incremental = false): void {
@@ -125,7 +184,8 @@ export class TerminalSession {
   }
 
   write(data: string): void {
-    this.term.write(data)
+    // Ack after xterm has actually processed the chunk (flow control).
+    this.term.write(data, () => window.term.ack(this.id, data.length))
   }
 
   markExited(): void {

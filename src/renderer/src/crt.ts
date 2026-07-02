@@ -6,7 +6,7 @@ export const CRT_LEVELS: CrtLevel[] = ['off', 'low', 'medium', 'high']
 
 /** Create the (non-interactive) CRT overlay layers inside the terminal area. */
 export function initCrtOverlays(container: HTMLElement): void {
-  for (const cls of ['crt-scanlines', 'crt-bloom', 'crt-vignette', 'crt-flicker']) {
+  for (const cls of ['crt-scanlines', 'crt-bloom', 'crt-vignette', 'crt-flicker', 'crt-burn']) {
     const el = document.createElement('div')
     el.className = `crt-overlay ${cls}`
     container.appendChild(el)
