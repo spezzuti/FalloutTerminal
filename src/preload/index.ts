@@ -1,0 +1,77 @@
+import { contextBridge, ipcRenderer, clipboard } from 'electron'
+import type {
+  SpawnOptions,
+  SpawnResult,
+  AppConfig,
+  SavedTab,
+  AppSettings,
+  Workspace,
+  CustomFont
+} from '../shared/types'
+
+// A minimal, explicit API surface exposed to the renderer. No raw Node/ipc.
+const api = {
+  spawn: (opts: SpawnOptions): Promise<SpawnResult> => ipcRenderer.invoke('pty:spawn', opts),
+
+  write: (id: string, data: string): void => {
+    ipcRenderer.send('pty:input', id, data)
+  },
+
+  resize: (id: string, cols: number, rows: number): void => {
+    ipcRenderer.send('pty:resize', id, cols, rows)
+  },
+
+  kill: (id: string): void => {
+    ipcRenderer.send('pty:kill', id)
+  },
+
+  onData: (cb: (id: string, data: string) => void): (() => void) => {
+    const listener = (_e: unknown, id: string, data: string): void => cb(id, data)
+    ipcRenderer.on('pty:data', listener)
+    return () => ipcRenderer.removeListener('pty:data', listener)
+  },
+
+  onExit: (cb: (id: string, code: number) => void): (() => void) => {
+    const listener = (_e: unknown, id: string, code: number): void => cb(id, code)
+    ipcRenderer.on('pty:exit', listener)
+    return () => ipcRenderer.removeListener('pty:exit', listener)
+  }
+}
+
+const win = {
+  minimize: (): void => ipcRenderer.send('win:minimize'),
+  toggleMaximize: (): void => ipcRenderer.send('win:toggle-maximize'),
+  close: (): void => ipcRenderer.send('win:close'),
+
+  onMaximizeChange: (cb: (maximized: boolean) => void): (() => void) => {
+    const listener = (_e: unknown, maximized: boolean): void => cb(maximized)
+    ipcRenderer.on('win:maximized', listener)
+    return () => ipcRenderer.removeListener('win:maximized', listener)
+  }
+}
+
+// System clipboard (more reliable than navigator.clipboard in this context).
+const clip = {
+  read: (): string => clipboard.readText(),
+  write: (text: string): void => clipboard.writeText(text)
+}
+
+const config = {
+  load: (): Promise<AppConfig> => ipcRenderer.invoke('config:load'),
+  saveSession: (tabs: SavedTab[]): void => ipcRenderer.send('config:save-session', tabs),
+  saveSettings: (settings: AppSettings): void => ipcRenderer.send('config:save-settings', settings),
+  saveWorkspaces: (workspaces: Workspace[]): void =>
+    ipcRenderer.send('config:save-workspaces', workspaces),
+  saveCustomFonts: (fonts: CustomFont[]): void =>
+    ipcRenderer.send('config:save-custom-fonts', fonts)
+}
+
+contextBridge.exposeInMainWorld('term', api)
+contextBridge.exposeInMainWorld('win', win)
+contextBridge.exposeInMainWorld('clip', clip)
+contextBridge.exposeInMainWorld('config', config)
+
+export type TermApi = typeof api
+export type WinApi = typeof win
+export type ClipApi = typeof clip
+export type ConfigApi = typeof config

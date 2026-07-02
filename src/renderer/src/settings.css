@@ -1,0 +1,138 @@
+#settings-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#settings-overlay.open {
+  display: flex;
+}
+
+#settings-panel {
+  width: 420px;
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-dim);
+  box-shadow: 0 0 24px var(--crt-glow);
+  color: var(--crt-fg);
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  padding: 18px 20px 22px;
+}
+
+.settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--crt-dim);
+  padding-bottom: 10px;
+  margin-bottom: 14px;
+  font-size: 16px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px var(--crt-glow);
+}
+
+.settings-close {
+  border: none;
+  background: transparent;
+  color: var(--crt-fg);
+  font-size: 14px;
+  cursor: pointer;
+}
+.settings-close:hover {
+  color: #ff8080;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 0;
+  font-size: 13px;
+}
+
+.settings-field > label {
+  flex: 1 1 auto;
+}
+
+.settings-field select,
+.settings-field input[type='file'] {
+  flex: 0 0 auto;
+  max-width: 60%;
+}
+
+.settings-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-val {
+  min-width: 22px;
+  text-align: right;
+}
+
+#settings-panel select,
+#settings-panel input[type='range'] {
+  background: #04120a;
+  color: var(--crt-fg);
+  border: 1px solid var(--crt-dim);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+}
+
+#settings-panel input[type='checkbox'],
+#settings-panel input[type='range'] {
+  accent-color: var(--crt-fg);
+}
+
+#settings-panel input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
+.settings-file {
+  color: var(--crt-fg);
+  font-size: 11px;
+}
+
+.settings-file::file-selector-button {
+  background: #04120a;
+  color: var(--crt-fg);
+  border: 1px solid var(--crt-dim);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.settings-file::file-selector-button:hover {
+  background: rgba(51, 255, 102, 0.14);
+}
+
+.settings-button {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  padding: 8px;
+  background: transparent;
+  color: var(--crt-fg);
+  border: 1px solid var(--crt-dim);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+.settings-button:hover {
+  background: rgba(51, 255, 102, 0.14);
+  text-shadow: 0 0 6px var(--crt-glow);
+}

@@ -1,0 +1,190 @@
+/* ---- CRT effect layers -------------------------------------------------- */
+/* Intensity is driven by a class on #app (crt-off/low/medium/high) which sets
+   CSS variables the overlay layers read. All overlays are non-interactive. */
+
+#app {
+  --scan-opacity: 0;
+  --vignette-opacity: 0;
+  --bloom-opacity: 0;
+  --flicker-max: 0;
+  --curve-radius: 0px;
+  --text-glow: 0px;
+}
+
+#app.crt-low {
+  --scan-opacity: 0.18;
+  --vignette-opacity: 0.28;
+  --bloom-opacity: 0.05;
+  --flicker-max: 0.02;
+  --curve-radius: 4px;
+  --text-glow: 2px;
+}
+
+#app.crt-medium {
+  --scan-opacity: 0.32;
+  --vignette-opacity: 0.42;
+  --bloom-opacity: 0.09;
+  --flicker-max: 0.04;
+  --curve-radius: 10px;
+  --text-glow: 4px;
+}
+
+#app.crt-high {
+  --scan-opacity: 0.48;
+  --vignette-opacity: 0.58;
+  --bloom-opacity: 0.14;
+  --flicker-max: 0.035;
+  --curve-radius: 18px;
+  --text-glow: 7px;
+}
+
+/* Round the terminal area at higher levels to suggest tube curvature. */
+#terminals {
+  border-radius: var(--curve-radius);
+  overflow: hidden;
+}
+
+.crt-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Horizontal scanlines */
+.crt-scanlines {
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.9) 0px,
+    rgba(0, 0, 0, 0.9) 1.5px,
+    transparent 1.5px,
+    transparent 3px
+  );
+  opacity: var(--scan-opacity);
+}
+
+/* Edge darkening (reads as screen curvature) */
+.crt-vignette {
+  background: radial-gradient(ellipse at center, transparent 52%, rgba(0, 0, 0, 0.95) 100%);
+  opacity: var(--vignette-opacity);
+}
+
+/* Phosphor haze */
+.crt-bloom {
+  background: radial-gradient(ellipse at center, var(--crt-glow) 0%, transparent 70%);
+  mix-blend-mode: screen;
+  opacity: var(--bloom-opacity);
+}
+
+/* Subtle brightness flicker */
+.crt-flicker {
+  background: var(--crt-fg);
+  mix-blend-mode: screen;
+  opacity: 0;
+  animation: crt-flicker 0.12s steps(2, end) infinite;
+}
+
+@keyframes crt-flicker {
+  0% {
+    opacity: 0;
+  }
+  50% {
+    opacity: var(--flicker-max);
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Glyph glow: text-shadow on the DOM-rendered rows so each character blooms
+   like phosphor, scaled by the current CRT level. */
+#app:not(.crt-off) .xterm-rows {
+  text-shadow:
+    0 0 var(--text-glow) var(--crt-fg),
+    0 0 calc(var(--text-glow) * 2) var(--crt-glow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .crt-flicker {
+    animation: none;
+  }
+}
+
+/* ---- RobCo boot sequence ------------------------------------------------ */
+#boot {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--crt-bg);
+  color: var(--crt-fg);
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  font-size: 16px;
+  padding: 48px;
+  white-space: pre;
+  line-height: 1.5;
+  text-shadow: 0 0 6px var(--crt-glow);
+  overflow: hidden;
+}
+
+.boot-art {
+  white-space: pre;
+  line-height: 1.05;
+  font-size: 20px;
+  font-weight: bold;
+  margin-bottom: 24px;
+  text-shadow:
+    0 0 10px var(--crt-fg),
+    0 0 22px var(--crt-glow);
+  opacity: 0;
+  animation: boot-art-in 0.6s ease forwards;
+}
+
+@keyframes boot-art-in {
+  0% {
+    opacity: 0;
+    filter: brightness(2.5);
+  }
+  100% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+}
+
+#boot.done {
+  animation: boot-flash 0.5s ease forwards;
+}
+
+.boot-line {
+  opacity: 0;
+  animation: boot-line-in 0.05s linear forwards;
+}
+
+.boot-hint {
+  position: absolute;
+  bottom: 24px;
+  right: 32px;
+  font-size: 12px;
+  color: var(--crt-dim);
+  opacity: 0;
+  animation: boot-line-in 0.3s linear forwards;
+  animation-delay: 1.2s;
+}
+
+@keyframes boot-line-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes boot-flash {
+  0% {
+    opacity: 1;
+  }
+  15% {
+    background: var(--crt-fg);
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FalloutTerminal</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="titlebar">
+        <div id="titlebar-brand">ROBCO INDUSTRIES (TM) TERMLINK</div>
+        <div id="titlebar-drag"></div>
+        <div id="window-controls">
+          <button id="btn-min" title="Minimize" aria-label="Minimize">_</button>
+          <button id="btn-max" title="Maximize" aria-label="Maximize">▢</button>
+          <button id="btn-close" title="Close" aria-label="Close">✕</button>
+        </div>
+      </div>
+      <div id="tabbar">
+        <div id="tabs"></div>
+        <button id="new-tab" title="New tab (Ctrl+Shift+T)" aria-label="New tab">+</button>
+        <div id="profile-menu-wrap">
+          <button id="profile-menu-btn" title="New tab from profile" aria-label="Choose profile">
+            ▾
+          </button>
+          <div id="profile-menu"></div>
+        </div>
+        <button id="btn-settings" title="Settings" aria-label="Settings">⚙</button>
+      </div>
+      <div id="terminals">
+        <div id="search-bar">
+          <input id="search-input" placeholder="SEARCH..." spellcheck="false" />
+          <button id="search-close" aria-label="Close search">✕</button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

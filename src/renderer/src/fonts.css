@@ -1,0 +1,34 @@
+/* Bundled CRT-style monospace fonts (SIL Open Font License). */
+@font-face {
+  font-family: 'Share Tech Mono';
+  src: url('./assets/fonts/ShareTechMono-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'VT323';
+  src: url('./assets/fonts/VT323-Regular.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Monofonto — the font used by Fallout's in-game terminal UI. */
+@font-face {
+  font-family: 'Monofonto';
+  src: url('./assets/fonts/monofonto.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Fixedsys Excelsior (public domain) — classic fixed-width Windows look. */
+@font-face {
+  font-family: 'Fixedsys Excelsior';
+  src: url('./assets/fonts/FSEX302.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
