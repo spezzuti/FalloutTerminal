@@ -1,6 +1,6 @@
 {
   "name": "fallout-terminal",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A Fallout/CRT-themed terminal for Windows",
   "main": "./out/main/index.js",
   "author": "spezzuti",
