@@ -20,6 +20,11 @@ export function configureIdle(on: boolean, mins: number): void {
   if (!on && overlay) dismiss()
 }
 
+/** Show the PLEASE STAND BY plate immediately (command palette action). */
+export function standBy(): void {
+  show()
+}
+
 function dismiss(): void {
   overlay?.remove()
   overlay = null

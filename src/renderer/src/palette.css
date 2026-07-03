@@ -1,0 +1,50 @@
+#palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 930;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+#palette {
+  width: 480px;
+  max-width: 92vw;
+  margin: 70px auto 0;
+  background: var(--crt-bg);
+  border: 1px solid var(--crt-dim);
+  box-shadow: 0 0 24px var(--crt-glow);
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+}
+
+#palette-input {
+  width: 100%;
+  background: #04120a;
+  border: none;
+  border-bottom: 1px solid var(--crt-dim);
+  outline: none;
+  color: var(--crt-fg);
+  font-family: inherit;
+  font-size: 15px;
+  letter-spacing: 1px;
+  padding: 10px 14px;
+}
+
+#palette-input::placeholder {
+  color: var(--crt-dim);
+}
+
+#palette-list {
+  max-height: 380px;
+  overflow-y: auto;
+}
+
+.palette-item {
+  padding: 7px 14px;
+  color: var(--crt-fg);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.palette-item.selected {
+  background: rgba(51, 255, 102, 0.15);
+  text-shadow: 0 0 6px var(--crt-glow);
+}

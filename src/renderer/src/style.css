@@ -48,6 +48,13 @@ body,
   white-space: nowrap;
 }
 
+#hack-streak {
+  color: #ffd23b;
+  font-size: 12px;
+  padding-left: 4px;
+  text-shadow: 0 0 6px rgba(255, 210, 59, 0.5);
+}
+
 #titlebar-drag {
   flex: 1 1 auto;
   height: 100%;

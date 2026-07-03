@@ -285,6 +285,12 @@ export class SettingsPanel {
     )
     panel.appendChild(
       this.field(
+        'Open new tabs in current directory',
+        this.checkbox(s.openTabsInCwd, (v) => this.tabs.updateSetting({ openTabsInCwd: v }))
+      )
+    )
+    panel.appendChild(
+      this.field(
         'Boot sequence on launch',
         this.checkbox(s.bootSequence, (v) => this.tabs.updateSetting({ bootSequence: v }))
       )

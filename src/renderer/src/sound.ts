@@ -106,6 +106,32 @@ export function bootSound(): void {
   osc.stop(t + 1)
 }
 
+/** Geiger-counter click burst, used for the terminal bell. */
+export function geigerBurst(): void {
+  if (!enabled || !ctx || !master) return
+  resumeIfNeeded()
+  const clicks = 2 + Math.floor(Math.random() * 3)
+  let t = ctx.currentTime + 0.01
+  for (let i = 0; i < clicks; i++) {
+    const buf = ctx.createBuffer(1, 250, ctx.sampleRate)
+    const d = buf.getChannelData(0)
+    for (let j = 0; j < d.length; j++) d[j] = (Math.random() * 2 - 1) * Math.exp(-j / 40)
+    const src = ctx.createBufferSource()
+    src.buffer = buf
+    const bp = ctx.createBiquadFilter()
+    bp.type = 'bandpass'
+    bp.frequency.value = 1100
+    bp.Q.value = 0.8
+    const g = ctx.createGain()
+    g.gain.value = 0.5
+    src.connect(bp)
+    bp.connect(g)
+    g.connect(master)
+    src.start(t)
+    t += 0.04 + Math.random() * 0.07
+  }
+}
+
 /** Falling blip matching the CRT power-off collapse. */
 export function powerOffSound(): void {
   if (!enabled || !ctx || !master) return

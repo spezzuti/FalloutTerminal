@@ -148,9 +148,29 @@ export class TabManager {
     for (const tid of this.order) {
       const tab = this.tabs.get(tid)
       const s = tab && this.sessions.get(tab.sessionIds[0])
-      if (s) out.push({ profileId: s.profile.id, title: s.displayTitle })
+      if (s) out.push({ profileId: s.profile.id, title: s.displayTitle, cwd: s.cwd })
     }
     return out
+  }
+
+  // Public helpers (command palette etc.)
+
+  cycleTab(dir: number): void {
+    this.cycle(dir)
+  }
+
+  closeFocusedPane(): void {
+    const tab = this.activeTab()
+    if (tab) this.closeSession(tab.focusedId)
+  }
+
+  renameActiveTab(): void {
+    const s = this.activeTab() && this.primarySession(this.activeTab()!)
+    if (!s) return
+    const label = this.dom.tabs.querySelector<HTMLElement>(
+      `[data-tab-id="${this.activeTabId}"] .tab-label`
+    )
+    if (label) this.startRename(s, label)
   }
 
   // ---- Settings application ---------------------------------------------------
@@ -284,6 +304,8 @@ export class TabManager {
     cwd?: string,
     title?: string
   ): Promise<TerminalSession> {
+    // New tabs inherit the focused shell's directory (shell integration).
+    if (cwd === undefined && this.settings.openTabsInCwd) cwd = this.active()?.cwd
     const profile = this.profileById(profileId)
     const root = document.createElement('div')
     root.className = 'tab-pane hidden'
@@ -324,7 +346,7 @@ export class TabManager {
 
     const s = this.createSession(tab, wrapper, target.profile)
     tab.sessionIds.push(s.id)
-    await s.start()
+    await s.start(this.settings.openTabsInCwd ? target.cwd : undefined)
     tab.focusedId = s.id
     s.term.focus()
     target.fitResize()
@@ -527,6 +549,11 @@ export class TabManager {
       document.dispatchEvent(new CustomEvent('app:hack'))
       return false
     }
+    // Command palette.
+    if (e.shiftKey && e.code === 'KeyP') {
+      document.dispatchEvent(new CustomEvent('app:palette'))
+      return false
+    }
     if (!e.shiftKey && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
       this.zoomFont(1)
       return false
@@ -653,7 +680,7 @@ export class TabManager {
       el.dataset.tabId = tid
       if (s.profile.color) el.style.borderLeft = `2px solid ${s.profile.color}`
       const splitMark = tab.sessionIds.length > 1 ? ` ⊞` : ''
-      el.title = (s.oscTitle || s.displayTitle) + splitMark
+      el.title = (s.oscTitle || s.displayTitle) + splitMark + (s.cwd ? `\n${s.cwd}` : '')
       el.draggable = true
 
       el.addEventListener('contextmenu', (ev) => {

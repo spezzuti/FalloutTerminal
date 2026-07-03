@@ -114,3 +114,19 @@
 .hack-locked .hack-bracket {
   pointer-events: none;
 }
+
+.hack-toast {
+  position: fixed;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 955;
+  background: var(--crt-bg);
+  border: 1px solid #ff6a5f;
+  color: #ff6a5f;
+  font-family: 'Monofonto', 'Share Tech Mono', monospace;
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 10px 18px;
+  text-shadow: 0 0 8px rgba(255, 106, 95, 0.5);
+}

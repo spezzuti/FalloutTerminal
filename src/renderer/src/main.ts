@@ -14,8 +14,9 @@ import { initCrtOverlays, setCrtLevel, runBootSequence } from './crt'
 import { SettingsPanel } from './settings'
 import { configureSound, bootSound, powerOffSound } from './sound'
 import { setPasteGuardEnabled } from './paste-guard'
-import { launchHack } from './hack'
+import { launchHack, updateStreakBadge } from './hack'
 import { configureIdle } from './idle'
+import { initPalette } from './palette'
 
 function wireWindowControls(powerOffClose: () => void): void {
   document.getElementById('btn-min')?.addEventListener('click', () => window.win.minimize())
@@ -138,6 +139,10 @@ async function boot(): Promise<void> {
   // Search in scrollback (Ctrl+Shift+F) and the hacking minigame (Ctrl+Shift+H).
   wireSearchBar(tabs)
   document.addEventListener('app:hack', () => launchHack())
+  updateStreakBadge()
+
+  // Command palette (Ctrl+Shift+P).
+  initPalette({ tabs, openSettings: () => settings.show() })
 
   // RobCo-styled prompt when an update has downloaded and is ready.
   window.win.onUpdateReady((version) => {

@@ -21,6 +21,13 @@ function fileExists(p: string): boolean {
   }
 }
 
+// Shell integration: make the prompt emit OSC 9;9 (current directory) so the
+// terminal can open new tabs in the same folder and restore tabs to theirs.
+// The PowerShell hook reproduces the default "PS path>" prompt exactly.
+const PS_INTEGRATION =
+  "function prompt { $e=[char]27; Write-Host -NoNewline ($e+']9;9;'+$PWD.Path+$e+'\\'); 'PS '+$PWD.Path+'> ' }"
+const CMD_INTEGRATION = 'prompt $E]9;9;$P$E\\$P$G'
+
 /** Detect shells present on this machine and build default profiles. */
 function detectProfiles(): Profile[] {
   const profiles: Profile[] = []
@@ -31,7 +38,7 @@ function detectProfiles(): Profile[] {
     id: 'powershell',
     name: 'PowerShell',
     shell: join(sysRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    args: [],
+    args: ['-NoLogo', '-NoExit', '-Command', PS_INTEGRATION],
     color: '#3b9eff'
   })
 
@@ -42,7 +49,13 @@ function detectProfiles(): Profile[] {
   ]
   const pwsh = pwshCandidates.find(fileExists)
   if (pwsh) {
-    profiles.push({ id: 'pwsh', name: 'PowerShell 7', shell: pwsh, args: [], color: '#2bd9d9' })
+    profiles.push({
+      id: 'pwsh',
+      name: 'PowerShell 7',
+      shell: pwsh,
+      args: ['-NoLogo', '-NoExit', '-Command', PS_INTEGRATION],
+      color: '#2bd9d9'
+    })
   }
 
   // Command Prompt (always present)
@@ -50,7 +63,7 @@ function detectProfiles(): Profile[] {
     id: 'cmd',
     name: 'Command Prompt',
     shell: join(sysRoot, 'System32', 'cmd.exe'),
-    args: [],
+    args: ['/k', CMD_INTEGRATION],
     color: '#ffd23b'
   })
 
@@ -108,7 +121,8 @@ function defaultConfig(): AppConfig {
       closeToTray: false,
       autoStart: false,
       idleScreen: true,
-      idleMinutes: 10
+      idleMinutes: 10,
+      openTabsInCwd: true
     },
     customFonts: [],
     customThemes: []

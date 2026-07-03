@@ -71,6 +71,8 @@ export interface AppSettings {
   /** Show the PLEASE STAND BY screen after a period of inactivity. */
   idleScreen: boolean
   idleMinutes: number
+  /** New tabs/splits start in the focused shell's current directory. */
+  openTabsInCwd: boolean
 }
 
 /** A user-created color theme, editable in settings. */

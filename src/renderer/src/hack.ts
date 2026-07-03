@@ -44,8 +44,41 @@ function likeness(a: string, b: string): number {
   return n
 }
 
+// Stakes: win streak shown in the title bar; losing locks the GAME for 60s.
+const KEY_STREAK = 'hackStreak'
+const KEY_LOCK = 'hackLockUntil'
+
+export function updateStreakBadge(): void {
+  const el = document.getElementById('hack-streak')
+  if (!el) return
+  const n = Number(localStorage.getItem(KEY_STREAK) || 0)
+  el.textContent = n > 0 ? `☢×${n}` : ''
+  el.title = n > 0 ? `Hacking win streak: ${n}` : ''
+}
+
+function recordWin(): void {
+  localStorage.setItem(KEY_STREAK, String(Number(localStorage.getItem(KEY_STREAK) || 0) + 1))
+  updateStreakBadge()
+}
+
+function recordLoss(): void {
+  localStorage.setItem(KEY_STREAK, '0')
+  localStorage.setItem(KEY_LOCK, String(Date.now() + 60_000))
+  updateStreakBadge()
+}
+
 export function launchHack(): void {
   if (document.getElementById('hack')) return
+  const lockUntil = Number(localStorage.getItem(KEY_LOCK) || 0)
+  if (Date.now() < lockUntil) {
+    const secs = Math.ceil((lockUntil - Date.now()) / 1000)
+    const toast = document.createElement('div')
+    toast.className = 'hack-toast'
+    toast.textContent = `TERMINAL LOCKED — RETRY IN ${secs}s`
+    document.body.appendChild(toast)
+    window.setTimeout(() => toast.remove(), 2200)
+    return
+  }
   new HackGame()
 }
 
@@ -233,6 +266,7 @@ class HackGame {
 
   private win(): void {
     this.locked = true
+    recordWin()
     window.setTimeout(() => {
       this.root.classList.add('hack-granted')
       const msg = document.createElement('div')
@@ -245,6 +279,7 @@ class HackGame {
 
   private lockout(): void {
     this.locked = true
+    recordLoss()
     this.root.classList.add('hack-locked')
     const msg = document.createElement('div')
     msg.className = 'hack-banner hack-banner-bad'

@@ -30,9 +30,44 @@ const ROBCO_ART = String.raw`
 |_| \_\ \___/ |____/  \____| \___/
 `
 
-/** Play the RobCo-style power-on boot animation, then reveal the terminal. */
-export function runBootSequence(): void {
-  const lines = [
+/** A few boot scripts so startup doesn't feel canned; picked at random. */
+function bootLines(): string[] {
+  const roll = Math.random()
+  if (roll < 0.2) {
+    return [
+      'ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL',
+      'ESTABLISHING UPLINK ............ OK',
+      'CHECKING MEMORY .... FAIL',
+      'RETRYING ...............',
+      'CHECKING MEMORY .... 64K RAM SYSTEM',
+      '38911 BYTES FREE',
+      '',
+      'WELCOME OVERSEER'
+    ]
+  }
+  if (roll < 0.35) {
+    return [
+      'VAULT-TEC UNIFIED OPERATING SYSTEM',
+      'ESTABLISHING UPLINK ............ OK',
+      'LIFE SUPPORT ........... NOMINAL',
+      'RADIATION SHIELDING .... NOMINAL',
+      'WATER CHIP ............. FUNCTIONAL',
+      '',
+      'HAVE A PLEASANT DAY IN THE VAULT'
+    ]
+  }
+  if (roll < 0.43) {
+    return [
+      'ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL',
+      'ESTABLISHING UPLINK ............ OK',
+      'WARNING: 200+ YEARS SINCE LAST MAINTENANCE',
+      'PROCEEDING ANYWAY ...',
+      'LOADING PIP-OS (R) ....',
+      '',
+      'WELCOME OVERSEER'
+    ]
+  }
+  return [
     'ROBCO INDUSTRIES (TM) TERMLINK PROTOCOL',
     'ESTABLISHING UPLINK ............ OK',
     'INITIALIZING BOOT LOADER v3.11',
@@ -42,6 +77,11 @@ export function runBootSequence(): void {
     '',
     'WELCOME OVERSEER'
   ]
+}
+
+/** Play the RobCo-style power-on boot animation, then reveal the terminal. */
+export function runBootSequence(): void {
+  const lines = bootLines()
 
   const boot = document.createElement('div')
   boot.id = 'boot'

@@ -4,7 +4,7 @@ import { SearchAddon } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { currentXtermTheme, currentFontFamily, currentFontSize } from './theme'
-import { keyClick } from './sound'
+import { keyClick, geigerBurst } from './sound'
 import { guardedPaste } from './paste-guard'
 import type { ITheme } from '@xterm/xterm'
 import type { Profile, CursorStyle } from '../../shared/types'
@@ -32,6 +32,8 @@ export class TerminalSession {
   customTitle?: string
   /** Live title the shell reports via OSC (shown as the tab tooltip). */
   oscTitle = ''
+  /** Current working directory reported by shell integration (OSC 9;9 / OSC 7). */
+  cwd?: string
   exited = false
   copyOnSelect = false
 
@@ -76,6 +78,39 @@ export class TerminalSession {
       this.onTitleChange?.(this)
     })
     this.disposers.push(() => titleSub.dispose())
+
+    // Shell integration: OSC 9;9 (ConEmu/Windows Terminal cwd convention).
+    this.term.parser.registerOscHandler(9, (data) => {
+      if (!data.startsWith('9;')) return false
+      let p = data.slice(2).trim()
+      if (p.startsWith('"') && p.endsWith('"')) p = p.slice(1, -1)
+      if (p) {
+        this.cwd = p
+        this.onTitleChange?.(this)
+      }
+      return true
+    })
+    // OSC 7 (file:// cwd convention used by bash/zsh setups).
+    this.term.parser.registerOscHandler(7, (data) => {
+      try {
+        const url = new URL(data)
+        if (url.protocol === 'file:') {
+          const p = decodeURIComponent(url.pathname)
+          const m = /^\/([A-Za-z]:\/.*)$/.exec(p)
+          if (m) {
+            this.cwd = m[1].replace(/\//g, '\\')
+            this.onTitleChange?.(this)
+          }
+        }
+      } catch {
+        /* malformed URI: ignore */
+      }
+      return true
+    })
+
+    // Terminal bell -> geiger counter clicks. Very RobCo.
+    const bellSub = this.term.onBell(() => geigerBurst())
+    this.disposers.push(() => bellSub.dispose())
 
     // Keystrokes -> shell (with an optional CRT key click)
     this.term.onData((data) => {
