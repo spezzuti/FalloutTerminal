@@ -336,7 +336,14 @@ app.whenReady().then(() => {
   if (app.isPackaged) {
     void (async (): Promise<void> => {
       try {
-        const { autoUpdater } = await import('electron-updater')
+        // electron-updater is CJS with getter-defined exports; dynamic
+        // import() can't see those as named exports, so go through .default.
+        const updaterModule = (await import('electron-updater')) as unknown as {
+          autoUpdater?: import('electron-updater').AppUpdater
+          default?: { autoUpdater: import('electron-updater').AppUpdater }
+        }
+        const autoUpdater = updaterModule.autoUpdater ?? updaterModule.default?.autoUpdater
+        if (!autoUpdater) throw new Error('electron-updater: autoUpdater export not found')
         autoUpdater.autoDownload = true
         autoUpdater.on('error', (e) => logError('autoUpdater', e))
         autoUpdater.on('update-downloaded', (info) => {
