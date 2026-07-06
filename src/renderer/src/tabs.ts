@@ -511,68 +511,80 @@ export class TabManager {
 
   private handleKey(e: KeyboardEvent): boolean {
     if (e.type !== 'keydown' || !e.ctrlKey) return true
+    // We're handling this combo ourselves: cancel the browser's default AND
+    // tell xterm to ignore it (return false). This preventDefault is load-
+    // bearing: xterm does NOT preventDefault when a custom key handler returns
+    // false, so without it Chromium still runs its own default for the combo.
+    // For Ctrl+Shift+V that default is a *native* paste event on top of our
+    // guarded paste() — the double-paste bug. (Same class of leak made
+    // Ctrl+±/0 trigger browser page-zoom alongside our font zoom.)
+    const handled = (): boolean => {
+      e.preventDefault()
+      return false
+    }
     if (e.shiftKey && e.code === 'KeyT') {
       void this.newTab()
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'KeyW') {
       const tab = this.activeTab()
       if (tab) this.closeSession(tab.focusedId)
-      return false
+      return handled()
     }
     if (e.code === 'Tab') {
       this.cycle(e.shiftKey ? -1 : 1)
-      return false
+      return handled()
     }
     // Split panes: D = side by side, S = stacked.
     if (e.shiftKey && e.code === 'KeyD') {
       void this.splitActive('row')
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'KeyS') {
       void this.splitActive('column')
-      return false
+      return handled()
     }
     // Copy the selection; with nothing selected let the key pass to the shell.
     if (e.shiftKey && e.code === 'KeyC') {
-      return !this.active()?.copySelection()
+      if (this.active()?.copySelection()) return handled()
+      return true
     }
     if (e.shiftKey && e.code === 'KeyV') {
       this.active()?.paste()
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'KeyF') {
       document.dispatchEvent(new CustomEvent('app:search'))
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'KeyH') {
       document.dispatchEvent(new CustomEvent('app:hack'))
-      return false
+      return handled()
     }
     // Command palette.
     if (e.shiftKey && e.code === 'KeyP') {
       document.dispatchEvent(new CustomEvent('app:palette'))
-      return false
+      return handled()
     }
     if (!e.shiftKey && (e.code === 'Equal' || e.code === 'NumpadAdd')) {
       this.zoomFont(1)
-      return false
+      return handled()
     }
     if (!e.shiftKey && (e.code === 'Minus' || e.code === 'NumpadSubtract')) {
       this.zoomFont(-1)
-      return false
+      return handled()
     }
     if (!e.shiftKey && e.code === 'Digit0') {
       this.applyFont(this.settings.fontFamily, 16)
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'Period') {
       this.cycleTheme()
-      return false
+      return handled()
     }
     if (e.shiftKey && e.code === 'Comma') {
       this.cycleCrt()
-      return false
+      return handled()
     }
     return true
   }
