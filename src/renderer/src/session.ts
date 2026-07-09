@@ -181,6 +181,15 @@ export class TerminalSession {
   }
 
   async start(cwd?: string): Promise<void> {
+    // Wait briefly for the bundled webfont to resolve so the first fit()
+    // measures real glyph metrics, not the fallback font's — otherwise cols/
+    // rows come out wrong and text wraps at the wrong column. Never block
+    // spawn for long: document.fonts.ready resolves instantly once loaded,
+    // so this only costs time on the very first launch frames.
+    await Promise.race([
+      document.fonts.ready.catch(() => {}),
+      new Promise((r) => setTimeout(r, 1500))
+    ])
     this.fit.fit()
     const result = await window.term.spawn({
       id: this.id,
@@ -217,12 +226,42 @@ export class TerminalSession {
     this.term.options.cursorBlink = blink
   }
 
+  private webglRecoveryTimer = 0
+  private webglSurvivalTimer = 0
+  /** Consecutive quick context losses; recovery gives up after 2 so a flaky
+      GPU driver can't loop forever — the DOM renderer fallback still works. */
+  private webglFailCount = 0
+
   /** WebGL renderer: faster for heavy TUI output, but no per-glyph glow. */
   setWebgl(on: boolean): void {
     if (on && !this.webgl) {
       try {
-        this.webgl = new WebglAddon()
-        this.term.loadAddon(this.webgl)
+        const addon = new WebglAddon()
+        // The GPU context can die anytime (sleep/resume, driver reset). If it's
+        // not restored within the addon's own window it fires this and renders
+        // nothing forever — recreate the addon to get a fresh context.
+        addon.onContextLoss(() => {
+          addon.dispose()
+          this.webgl = undefined
+          if (this.webglFailCount >= 2) return // give up, stay on DOM renderer
+          this.webglFailCount++
+          this.webglRecoveryTimer = window.setTimeout(() => {
+            this.setWebgl(true)
+            try {
+              this.term.refresh(0, this.term.rows - 1)
+            } catch {
+              /* terminal may have been disposed while we were waiting */
+            }
+          }, 1000)
+        })
+        this.webgl = addon
+        this.term.loadAddon(addon)
+        // Once the context has survived a while, forgive past failures so a
+        // one-off loss doesn't count against a later, unrelated one.
+        window.clearTimeout(this.webglSurvivalTimer)
+        this.webglSurvivalTimer = window.setTimeout(() => {
+          this.webglFailCount = 0
+        }, 30000)
       } catch {
         this.webgl = undefined
       }
@@ -315,10 +354,25 @@ export class TerminalSession {
     this.term.options.fontFamily = family
     this.term.options.fontSize = size
     this.fitResize()
+    // If we just switched to a family that hasn't downloaded yet, re-measure
+    // once it actually arrives (fontFamily may be a comma-separated stack;
+    // the first entry is enough to key the font-loading check on).
+    try {
+      document.fonts
+        .load(`${size}px ${family}`)
+        .then(() => this.fitResize())
+        .catch(() => {})
+    } catch {
+      /* ignore malformed font specifiers */
+    }
   }
 
-
   dispose(): void {
+    window.clearTimeout(this.ptyResizeTimer)
+    this.pinTimers.forEach((t) => window.clearTimeout(t))
+    this.pinTimers = []
+    window.clearTimeout(this.webglRecoveryTimer)
+    window.clearTimeout(this.webglSurvivalTimer)
     this.disposers.forEach((d) => d())
     if (!this.exited) window.term.kill(this.id)
     this.term.dispose()

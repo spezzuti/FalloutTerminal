@@ -1,5 +1,14 @@
 import { app } from 'electron'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  statSync,
+  mkdirSync,
+  copyFileSync,
+  renameSync
+} from 'fs'
 import { join, dirname } from 'path'
 import type { Profile, AppConfig } from '../shared/types'
 
@@ -19,6 +28,40 @@ function fileExists(p: string): boolean {
   } catch {
     return false
   }
+}
+
+// ---- Error logging ----------------------------------------------------------
+// Main-process failures are otherwise invisible; keep a small rotating log.
+// Lives here (rather than in index.ts) so config load/save can log write and
+// corruption-recovery failures without an index.ts <-> config.ts import cycle.
+
+export function logPath(): string {
+  return join(app.getPath('userData'), 'error.log')
+}
+
+export function logError(tag: string, err: unknown): void {
+  try {
+    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    try {
+      if (statSync(logPath()).size > 512 * 1024) writeFileSync(logPath(), '')
+    } catch {
+      /* no log yet */
+    }
+    appendFileSync(logPath(), `[${new Date().toISOString()}] ${tag}: ${detail}\n`)
+  } catch {
+    /* never let logging crash the app */
+  }
+}
+
+/**
+ * Write `data` to `path` atomically: write to a sibling `.tmp` file, then
+ * rename it over the target. A crash/power-loss mid-write leaves either the
+ * old file or the new one intact, never a truncated/corrupt one.
+ */
+export function atomicWriteFileSync(path: string, data: string): void {
+  const tmpPath = `${path}.tmp`
+  writeFileSync(tmpPath, data, 'utf-8')
+  renameSync(tmpPath, path)
 }
 
 // Shell integration: make the prompt emit OSC 9;9 (current directory) so the
@@ -135,39 +178,75 @@ function configPath(): string {
 
 let cache: AppConfig | null = null
 
+/** Parse a config file at `path` and merge it over the defaults. Throws on
+ *  missing/corrupt/unparseable files; used for both config.json and .bak. */
+function parseConfigFile(path: string): AppConfig {
+  // Strip a UTF-8 BOM if present (some editors/tools add one), which would
+  // otherwise make JSON.parse throw and wipe the user's config.
+  let raw = readFileSync(path, 'utf-8')
+  if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1)
+  const parsed = JSON.parse(raw) as Partial<AppConfig>
+  // Merge with defaults so new fields are filled in on upgrade, and always
+  // refresh detected profiles so newly installed shells appear.
+  const base = defaultConfig()
+  const customProfiles = (parsed.customProfiles || []).map((p) => ({ ...p, custom: true }))
+  const profiles = [...base.profiles, ...customProfiles]
+  const defaultProfileId = profiles.some((p) => p.id === parsed.defaultProfileId)
+    ? parsed.defaultProfileId!
+    : base.defaultProfileId
+  return {
+    ...base,
+    ...parsed,
+    profiles,
+    customProfiles,
+    defaultProfileId,
+    settings: { ...base.settings, ...(parsed.settings || {}) },
+    session: parsed.session || base.session,
+    workspaces: parsed.workspaces || base.workspaces,
+    customFonts: parsed.customFonts || base.customFonts,
+    customThemes: parsed.customThemes || base.customThemes
+  }
+}
+
 export function loadConfig(): AppConfig {
   if (cache) return cache
   const path = configPath()
   if (fileExists(path)) {
     try {
-      // Strip a UTF-8 BOM if present (some editors/tools add one), which would
-      // otherwise make JSON.parse throw and wipe the user's config.
-      let raw = readFileSync(path, 'utf-8')
-      if (raw.charCodeAt(0) === 0xfeff) raw = raw.slice(1)
-      const parsed = JSON.parse(raw) as Partial<AppConfig>
-      // Merge with defaults so new fields are filled in on upgrade, and always
-      // refresh detected profiles so newly installed shells appear.
-      const base = defaultConfig()
-      const customProfiles = (parsed.customProfiles || []).map((p) => ({ ...p, custom: true }))
-      const profiles = [...base.profiles, ...customProfiles]
-      const defaultProfileId = profiles.some((p) => p.id === parsed.defaultProfileId)
-        ? parsed.defaultProfileId!
-        : base.defaultProfileId
-      cache = {
-        ...base,
-        ...parsed,
-        profiles,
-        customProfiles,
-        defaultProfileId,
-        settings: { ...base.settings, ...(parsed.settings || {}) },
-        session: parsed.session || base.session,
-        workspaces: parsed.workspaces || base.workspaces,
-        customFonts: parsed.customFonts || base.customFonts,
-        customThemes: parsed.customThemes || base.customThemes
-      }
+      cache = parseConfigFile(path)
       return cache
-    } catch {
-      /* corrupt file: fall through to defaults */
+    } catch (e) {
+      logError('config load', e)
+      // Primary file is corrupt/unreadable: try the last-known-good backup
+      // before ever falling back to defaults, so a crash mid-write doesn't
+      // wipe profiles, themes, workspaces, or the saved session.
+      const bakPath = `${path}.bak`
+      if (fileExists(bakPath)) {
+        try {
+          cache = parseConfigFile(bakPath)
+          logError('config load', new Error(`recovered from ${bakPath} after corrupt config.json`))
+          // Move the corrupt primary aside and rewrite it from the recovered
+          // backup right away — otherwise the next saveConfig() would copy the
+          // corrupt file over this backup before writing.
+          try {
+            renameSync(path, `${path}.corrupt`)
+          } catch {
+            /* best-effort */
+          }
+          saveConfig(cache)
+          return cache
+        } catch (e2) {
+          logError('config backup load', e2)
+        }
+      }
+      // Both primary and backup are unusable: preserve the corrupt file
+      // (instead of silently overwriting it) before falling back to defaults.
+      try {
+        renameSync(path, `${path}.corrupt`)
+        logError('config corrupt', new Error(`preserved unreadable config as ${path}.corrupt`))
+      } catch (e3) {
+        logError('config preserve corrupt', e3)
+      }
     }
   }
   cache = defaultConfig()
@@ -180,9 +259,19 @@ export function saveConfig(config: AppConfig): void {
   const path = configPath()
   try {
     mkdirSync(dirname(path), { recursive: true })
-    writeFileSync(path, JSON.stringify(config, null, 2), 'utf-8')
-  } catch {
-    /* best-effort persistence */
+    const json = JSON.stringify(config, null, 2)
+    // Keep exactly one backup of the last-known-good config before
+    // overwriting it, so loadConfig() can recover from a corrupt write.
+    if (fileExists(path)) {
+      try {
+        copyFileSync(path, `${path}.bak`)
+      } catch (e) {
+        logError('config backup', e)
+      }
+    }
+    atomicWriteFileSync(path, json)
+  } catch (e) {
+    logError('config save', e)
   }
 }
 

@@ -81,6 +81,7 @@ function bootLines(): string[] {
 
 /** Play the RobCo-style power-on boot animation, then reveal the terminal. */
 export function runBootSequence(): void {
+  if (document.getElementById('boot')) return
   const lines = bootLines()
 
   const boot = document.createElement('div')

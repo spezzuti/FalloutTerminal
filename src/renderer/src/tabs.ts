@@ -58,6 +58,8 @@ export class TabManager {
 
   private readonly ro: ResizeObserver
   private settleTimer = 0
+  private renderTabsTimer = 0
+  private persistTimer = 0
 
   /** Set by the shell to run the power-off animation before closing. */
   closeApp?: () => void
@@ -116,6 +118,25 @@ export class TabManager {
     const tab = this.activeTab()
     if (!tab) return
     for (const sid of tab.sessionIds) this.sessions.get(sid)?.fitResize()
+  }
+
+  /** Refit EVERY session (all tabs, all split panes) — not just the active
+      tab's. Used after the fallback/custom webfont finishes loading, since a
+      background tab's grid may have been measured against the wrong font. */
+  fitAll(): void {
+    for (const s of this.sessions.values()) s.fitResize()
+  }
+
+  /** Force a fresh WebGL context on every session (performance mode only).
+      Called after the OS resumes from sleep, since a stale/lost GPU context
+      can otherwise leave tabs rendering nothing. */
+  refreshWebgl(): void {
+    if (!this.settings.performanceMode) return
+    for (const s of this.sessions.values()) {
+      s.setWebgl(false)
+      s.setWebgl(true)
+    }
+    this.fitAll()
   }
 
   // ---- Accessors -------------------------------------------------------------
@@ -198,6 +219,16 @@ export class TabManager {
     setFont(family, size)
     for (const s of this.sessions.values()) s.setFont(family, size)
     this.updateSetting({ fontFamily: family, fontSize: size })
+    // Re-measure everything once the (possibly not-yet-downloaded) family
+    // actually resolves, so every tab's grid matches the real glyph width.
+    try {
+      document.fonts
+        .load(`${size}px ${family}`)
+        .then(() => this.fitAll())
+        .catch(() => {})
+    } catch {
+      /* ignore malformed font specifiers */
+    }
   }
 
   applyCursor(style: CursorStyle, blink: boolean): void {
@@ -272,8 +303,10 @@ export class TabManager {
   ): TerminalSession {
     const s = new TerminalSession(parent, profile)
     s.onTitleChange = () => {
-      this.renderTabs()
-      this.persist()
+      // Shell integration fires this on every prompt — debounce so a busy
+      // shell doesn't rebuild the tab bar / write config on each keystroke.
+      this.renderTabsSoon()
+      this.persistSoon()
     }
     s.keyHandler = (e) => {
       // Any keystroke marks this session as its tab's focused pane.
@@ -433,6 +466,7 @@ export class TabManager {
     const tabId = this.sessionTab.get(sessionId)
     const tab = tabId ? this.tabs.get(tabId) : undefined
 
+    this.ro.unobserve(s.pane)
     s.dispose()
     this.sessions.delete(sessionId)
     this.sessionTab.delete(sessionId)
@@ -461,6 +495,7 @@ export class TabManager {
     for (const sid of [...tab.sessionIds]) {
       const s = this.sessions.get(sid)
       if (s) {
+        this.ro.unobserve(s.pane)
         s.dispose()
         this.sessions.delete(sid)
         this.sessionTab.delete(sid)
@@ -523,7 +558,8 @@ export class TabManager {
       return false
     }
     if (e.shiftKey && e.code === 'KeyT') {
-      void this.newTab()
+      // Key repeat would spawn a real shell process per repeat tick.
+      if (!e.repeat) void this.newTab()
       return handled()
     }
     if (e.shiftKey && e.code === 'KeyW') {
@@ -536,12 +572,13 @@ export class TabManager {
       return handled()
     }
     // Split panes: D = side by side, S = stacked.
+    // (Key repeat would spawn a real shell process per repeat tick.)
     if (e.shiftKey && e.code === 'KeyD') {
-      void this.splitActive('row')
+      if (!e.repeat) void this.splitActive('row')
       return handled()
     }
     if (e.shiftKey && e.code === 'KeyS') {
-      void this.splitActive('column')
+      if (!e.repeat) void this.splitActive('column')
       return handled()
     }
     // Copy the selection; with nothing selected let the key pass to the shell.
@@ -593,6 +630,13 @@ export class TabManager {
 
   private persist(): void {
     window.config.saveSession(this.snapshot())
+  }
+
+  /** Debounced persist() — for high-frequency triggers (e.g. every shell
+      prompt) where an immediate write per event would thrash IPC. */
+  private persistSoon(): void {
+    window.clearTimeout(this.persistTimer)
+    this.persistTimer = window.setTimeout(() => this.persist(), 500)
   }
 
   // ---- DOM ------------------------------------------------------------------------
@@ -679,6 +723,13 @@ export class TabManager {
     window.setTimeout(() => {
       document.addEventListener('click', () => menu.remove(), { once: true })
     }, 0)
+  }
+
+  /** Debounced renderTabs() — for high-frequency triggers (e.g. every shell
+      prompt) where a full tab-bar DOM rebuild per event would be wasteful. */
+  private renderTabsSoon(): void {
+    window.clearTimeout(this.renderTabsTimer)
+    this.renderTabsTimer = window.setTimeout(() => this.renderTabs(), 200)
   }
 
   private renderTabs(): void {

@@ -91,6 +91,7 @@ class HackGame {
   private readonly words: string[]
   private duds: string[] = []
   private locked = false
+  private closed = false
 
   constructor() {
     this.words = shuffled(WORD_POOL).slice(0, WORD_COUNT)
@@ -268,6 +269,7 @@ class HackGame {
     this.locked = true
     recordWin()
     window.setTimeout(() => {
+      if (this.closed) return
       this.root.classList.add('hack-granted')
       const msg = document.createElement('div')
       msg.className = 'hack-banner'
@@ -289,6 +291,8 @@ class HackGame {
   }
 
   private close(): void {
+    if (this.closed) return
+    this.closed = true
     window.removeEventListener('keydown', this.onKey, true)
     this.root.remove()
   }

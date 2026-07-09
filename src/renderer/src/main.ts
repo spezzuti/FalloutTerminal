@@ -30,6 +30,15 @@ function wireWindowControls(powerOffClose: () => void): void {
   })
 }
 
+/** Windows resume-from-sleep can leave WebGL contexts dead; force fresh ones. */
+function wirePowerResume(tabs: TabManager): void {
+  // Cast guards against the preload API not declaring this yet (added
+  // alongside main-process resume detection) so typecheck passes either way.
+  ;(window.term as { onPowerResume?: (cb: () => void) => void }).onPowerResume?.(() =>
+    tabs.refreshWebgl()
+  )
+}
+
 function wireSearchBar(tabs: TabManager): void {
   const getActive = (): import('./session').TerminalSession | undefined => tabs.active()
   const bar = document.getElementById('search-bar')!
@@ -131,6 +140,7 @@ async function boot(): Promise<void> {
     cfg.settings
   )
   tabs.closeApp = powerOffClose
+  wirePowerResume(tabs)
 
   // Settings panel (gear button in the tab bar).
   const settings = new SettingsPanel(tabs, cfg.customFonts, cfg.workspaces, cfg.customThemes)
@@ -179,7 +189,9 @@ async function boot(): Promise<void> {
 
   // Custom fonts (e.g. Monofonto) load asynchronously; once ready, re-fit so the
   // column count matches the real glyph width (otherwise text overruns the edge).
-  document.fonts.ready.then(() => tabs.active()?.fitResize())
+  // Refit every tab/pane, not just the active one — background tabs were
+  // measured against the fallback font too.
+  document.fonts.ready.then(() => tabs.fitAll())
 }
 
 boot()

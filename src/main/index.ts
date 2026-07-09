@@ -7,12 +7,13 @@ import {
   Menu,
   screen,
   globalShortcut,
-  Tray
+  Tray,
+  powerMonitor
 } from 'electron'
 import { join } from 'path'
-import { readFileSync, writeFileSync, appendFileSync, statSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, existsSync } from 'fs'
 import { registerPtyHandlers, disposeAllPtys } from './pty'
-import { loadConfig, saveConfig } from './config'
+import { loadConfig, saveConfig, atomicWriteFileSync, logError, logPath } from './config'
 import type {
   SavedTab,
   AppSettings,
@@ -21,27 +22,6 @@ import type {
   CustomTheme,
   Profile
 } from '../shared/types'
-
-// ---- Error logging ----------------------------------------------------------
-// Main-process failures are otherwise invisible; keep a small rotating log.
-
-function logPath(): string {
-  return join(app.getPath('userData'), 'error.log')
-}
-
-function logError(tag: string, err: unknown): void {
-  try {
-    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err)
-    try {
-      if (statSync(logPath()).size > 512 * 1024) writeFileSync(logPath(), '')
-    } catch {
-      /* no log yet */
-    }
-    appendFileSync(logPath(), `[${new Date().toISOString()}] ${tag}: ${detail}\n`)
-  } catch {
-    /* never let logging crash the app */
-  }
-}
 
 process.on('uncaughtException', (e) => logError('uncaughtException', e))
 process.on('unhandledRejection', (r) => logError('unhandledRejection', r))
@@ -132,9 +112,9 @@ function loadWindowState(): WindowState | null {
 function saveWindowState(win: BrowserWindow): void {
   try {
     const state: WindowState = { ...win.getNormalBounds(), maximized: win.isMaximized() }
-    writeFileSync(windowStatePath(), JSON.stringify(state))
-  } catch {
-    /* best-effort */
+    atomicWriteFileSync(windowStatePath(), JSON.stringify(state))
+  } catch (e) {
+    logError('window state save', e)
   }
 }
 
@@ -329,6 +309,16 @@ app.whenReady().then(() => {
   createWindow()
   createTray()
   applySystemSettings()
+
+  // Windows resuming from sleep is the most likely trigger for a WebGL
+  // context loss that blanks all terminals; tell the renderer so it can
+  // recover (e.g. re-init the WebGL renderer).
+  powerMonitor.on('resume', () => {
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed() || w.webContents.isDestroyed()) continue
+      w.webContents.send('power:resume')
+    }
+  })
 
   // Auto-update from GitHub releases (installed builds only; portable exes
   // and dev runs skip this). When an update finishes downloading, the

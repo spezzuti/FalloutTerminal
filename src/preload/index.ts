@@ -46,6 +46,11 @@ const api = {
     const listener = (_e: unknown, id: string, code: number): void => cb(id, code)
     ipcRenderer.on('pty:exit', listener)
     return () => ipcRenderer.removeListener('pty:exit', listener)
+  },
+
+  /** Fired when the OS resumes from sleep (a likely trigger for WebGL context loss). */
+  onPowerResume: (cb: () => void): void => {
+    ipcRenderer.on('power:resume', () => cb())
   }
 }
 
